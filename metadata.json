@@ -1,0 +1,6 @@
+{
+  "name": "VEYRA",
+  "description": "Professional video intelligence, transcription, subtitle, translation, and media workspace platform.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
