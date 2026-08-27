@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Video, Music, Trash2, ArrowRight, Link, Mic, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Video, Music, Trash2, ArrowRight, Link, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from '../common/Button';
 import { FileDropzone } from './FileDropzone';
 import { formatBytes, formatDuration } from '../../utils/formatters';
@@ -13,7 +13,7 @@ interface CreateProjectPageProps {
 }
 
 export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'url' | 'record'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'url'>('upload');
   
   // Upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -194,20 +194,6 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
         >
           <span>Import from URL</span>
           {activeTab === 'url' && (
-            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#111111]" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('record')}
-          className={`pb-3 text-xs sm:text-sm font-semibold uppercase tracking-wider transition-colors cursor-pointer relative ${
-            activeTab === 'record'
-              ? 'text-[#000000]'
-              : 'text-[#666666] hover:text-[#111111]'
-          }`}
-        >
-          <span>Record</span>
-          {activeTab === 'record' && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#111111]" />
           )}
         </button>
@@ -406,40 +392,6 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
               icon={<ArrowRight className="w-4 h-4" />}
             >
               Import and Create Project
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Record directly */}
-      {activeTab === 'record' && (
-        <div className="bg-white border border-[#E5E5E5] rounded-lg p-6 sm:p-8 space-y-6 text-center">
-          <div className="max-w-md mx-auto">
-            <div className="w-12 h-12 rounded-full bg-[#FAFAFA] border border-[#E5E5E5] flex items-center justify-center text-[#111111] mx-auto mb-4">
-              <Mic className="w-5 h-5" />
-            </div>
-
-            <h3 className="text-base font-bold text-[#000000] mb-2">
-              DIRECT MEDIA RECORDING
-            </h3>
-
-            <p className="text-xs text-[#666666] leading-relaxed mb-6">
-              Record microphone audio or capture a screen/camera feed directly in your browser.
-            </p>
-
-            <div className="p-4 bg-[#FAFAFA] border border-[#E5E5E5] rounded-md text-xs text-[#666666] mb-6 text-left space-y-2">
-              <p className="font-semibold text-[#111111]">Browser Recording Integration</p>
-              <p>
-                In Phase 3, please use the <strong>Upload File</strong> tab to choose existing audio or video files from your device. Direct live recording capture will be activated in the upcoming media processing phase.
-              </p>
-            </div>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setActiveTab('upload')}
-            >
-              Switch to File Upload
             </Button>
           </div>
         </div>

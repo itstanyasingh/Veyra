@@ -82,63 +82,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
     }
   ];
 
-  const reviews = [
-    {
-      name: 'Lory Martinez',
-      initial: 'L',
-      rating: 5,
-      text: 'Great service for multilingual podcasts and fast subtitle generation.'
-    },
-    {
-      name: 'Lisa Ryan',
-      initial: 'L',
-      rating: 5,
-      text: 'I have been using Veyra to add subtitles to my videos and transcribe podcast interviews. Except for minor punctuation changes, it does a great job.'
-    },
-    {
-      name: 'Helen Swierszcz',
-      initial: 'H',
-      rating: 5,
-      text: 'Really simple and straightforward to use — highly recommended for academic research.'
-    },
-    {
-      name: 'J. Wairimu',
-      initial: 'J',
-      rating: 5,
-      text: 'The product is easy to use and to follow along with. Saves hours of manual work.'
-    },
-    {
-      name: 'Markus Bühler',
-      initial: 'M',
-      rating: 5,
-      text: 'It is a great tool. Very intelligent, perfect workflow. Makes happy to work with.'
-    },
-    {
-      name: 'Katarzyna Dąbrowska',
-      initial: 'K',
-      rating: 5,
-      text: 'Thanks to Veyra my videos are more and more interesting for my subscribers! Thank you!'
-    },
-    {
-      name: 'Anita',
-      initial: 'A',
-      rating: 5,
-      text: 'Great tool to add text to video. It worked like a dream for our legal depositions.'
-    },
-    {
-      name: 'Client Review',
-      initial: 'C',
-      rating: 5,
-      text: 'Veyra is a really powerful and easy-to-use tool that allows us to generate scripts from the videos that we produce in order to generate closed captions.'
-    },
-    {
-      name: 'Zahir Suleman',
-      initial: 'Z',
-      rating: 5,
-      text: 'Very efficient service and excellent value for money across team video libraries.'
-    }
-  ];
-
   const popularFormats = [
     'Transcribe YouTube video',
     'Convert AVI to text',
@@ -285,68 +228,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               <HomeImportArea onNavigate={onNavigate} />
             </div>
 
-            {/* Compact Trust Row */}
+            {/* Verified Capabilities Row */}
             <div className="pt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-[#64748B]">
               <div className="flex items-center gap-1.5 font-medium text-[#111827]">
-                <div className="flex items-center text-[#F59E0B]">
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                </div>
-                <span>Rated 4.8 out of 5 stars</span>
+                <Check className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>Multi-Speaker Diarization</span>
               </div>
               <span className="text-[#CBD5E1] hidden sm:inline">·</span>
-              <div className="flex items-center gap-1">
-                <Check className="w-3.5 h-3.5 text-[#10B981]" />
-                <span>Free to start</span>
+              <div className="flex items-center gap-1.5 font-medium text-[#111827]">
+                <Check className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>Word-Level Timestamps</span>
               </div>
               <span className="text-[#CBD5E1] hidden sm:inline">·</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm">🇬🇧 🇫🇷 🇪🇸 🇩🇪</span>
-                <span>150+ languages</span>
+              <div className="flex items-center gap-1.5 font-medium text-[#111827]">
+                <Check className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>Private Local Storage</span>
+              </div>
+              <span className="text-[#CBD5E1] hidden sm:inline">·</span>
+              <div className="flex items-center gap-1.5 font-medium text-[#111827]">
+                <Check className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>150+ Languages &amp; SRT / VTT Export</span>
               </div>
             </div>
 
-          </div>
-
-          {/* Trusted By Strip */}
-          <div className="mt-14 pt-10 border-t border-[#E2E8F0] max-w-4xl mx-auto w-full">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] text-center mb-6 font-mono">
-              TRUSTED BY 6M+ USERS AND 41,000+ TEAMS OF ALL SIZES
-            </p>
-            
-            {/* Continuous Horizontal Marquee */}
-            <div className="relative w-full overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
-              {/* Left and Right Edge Fade Gradients */}
-              <div className="absolute left-0 top-0 bottom-0 w-12 sm:w-20 bg-gradient-to-r from-white to-transparent pointer-events-none z-10" />
-              <div className="absolute right-0 top-0 bottom-0 w-12 sm:w-20 bg-gradient-to-l from-white to-transparent pointer-events-none z-10" />
-
-              <div className="animate-marquee-infinite flex items-center select-none py-1">
-                {/* Set 1 */}
-                <div className="flex items-center shrink-0 gap-10 sm:gap-14 pr-10 sm:pr-14 opacity-60 grayscale hover:opacity-85 transition-opacity">
-                  <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">RANDSTAD</span>
-                  <span className="font-semibold text-sm sm:text-base tracking-wider text-[#475569] whitespace-nowrap">KÉRASTASE</span>
-                  <span className="font-bold text-sm sm:text-base tracking-normal text-[#475569] whitespace-nowrap">TAMEDIA</span>
-                  <span className="font-black text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">itv</span>
-                  <span className="font-bold text-sm sm:text-base tracking-widest text-[#475569] whitespace-nowrap">SKYDANCE</span>
-                  <span className="font-medium text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">MEDIATECH</span>
-                  <span className="font-semibold text-sm sm:text-base tracking-widest text-[#475569] whitespace-nowrap">TWOFOUR</span>
-                </div>
-
-                {/* Set 2 (Seamless Duplicate) */}
-                <div className="flex items-center shrink-0 gap-10 sm:gap-14 pr-10 sm:pr-14 opacity-60 grayscale hover:opacity-85 transition-opacity" aria-hidden="true">
-                  <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">RANDSTAD</span>
-                  <span className="font-semibold text-sm sm:text-base tracking-wider text-[#475569] whitespace-nowrap">KÉRASTASE</span>
-                  <span className="font-bold text-sm sm:text-base tracking-normal text-[#475569] whitespace-nowrap">TAMEDIA</span>
-                  <span className="font-black text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">itv</span>
-                  <span className="font-bold text-sm sm:text-base tracking-widest text-[#475569] whitespace-nowrap">SKYDANCE</span>
-                  <span className="font-medium text-sm sm:text-base tracking-tight text-[#475569] whitespace-nowrap">MEDIATECH</span>
-                  <span className="font-semibold text-sm sm:text-base tracking-widest text-[#475569] whitespace-nowrap">TWOFOUR</span>
-                </div>
-              </div>
-            </div>
           </div>
 
         </div>
@@ -874,47 +778,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
       </section>
 
       {/* =========================================================================
-          8. CUSTOMER REVIEWS (3x3 grid)
-          ========================================================================= */}
-      <section className="py-16 sm:py-20 bg-white border-b border-[#E2E8F0]">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-          
-          <div className="text-center mb-12 space-y-1.5">
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111827]">
-              Customer Reviews
-            </h2>
-            <p className="text-xs text-[#64748B] flex items-center justify-center gap-1.5">
-              <span>Rated</span>
-              <span className="text-[#F59E0B] font-bold flex items-center">
-                ★★★★★ <span className="text-[#111827] ml-1">4.7</span>/5
-              </span>
-              <span>on Trustpilot</span>
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {reviews.map((r, i) => (
-              <div key={i} className="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-2xs space-y-3 text-left">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center text-[#F59E0B] text-xs">
-                    {'★'.repeat(r.rating)}
-                  </div>
-                  <span className="text-[10px] font-mono font-bold text-[#2563EB]">
-                    BY {r.name.toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-xs text-[#374151] leading-relaxed">
-                  "{r.text}"
-                </p>
-              </div>
-            ))}
-          </div>
-
-        </div>
-      </section>
-
-      {/* =========================================================================
-          9. RELATED ARTICLES (Horizontal cards near bottom)
+          8. RELATED ARTICLES (Horizontal cards near bottom)
           ========================================================================= */}
       <section className="py-16 sm:py-20 bg-[#F8FAFC] border-b border-[#E2E8F0]">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
