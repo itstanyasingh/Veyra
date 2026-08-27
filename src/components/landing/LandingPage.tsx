@@ -109,30 +109,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
     'VTT generator'
   ];
 
-  const relatedArticles = [
-    {
-      tag: 'GUIDE',
-      date: 'February 18, 2026',
-      title: 'How to Transcribe Video to Text: The Complete 2026 Guide',
-      description: 'Learn the most accurate workflows to turn video files into transcripts, subtitles, and searchable documents efficiently.',
-      readTime: '5 min read'
-    },
-    {
-      tag: 'FORMATS',
-      date: 'February 12, 2026',
-      title: 'Top Video to Text Formats: Comparing SRT, VTT, and TXT',
-      description: 'Understand when to use closed captions versus timestamped text documents for video accessibility and SEO ranking.',
-      readTime: '4 min read'
-    },
-    {
-      tag: 'PRODUCTIVITY',
-      date: 'January 29, 2026',
-      title: 'How Automated AI Transcription Saves 10+ Hours Per Week',
-      description: 'Discover how content creators and research teams streamline interviews and meetings with automatic speech recognition.',
-      readTime: '6 min read'
-    }
-  ];
-
   const useCases = [
     {
       icon: <Radio className="w-5 h-5 text-[#2563EB]" />,
@@ -592,62 +568,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* SECTION 3: Left Text, Right Visual (Mobile App) */}
-      <section className="py-16 sm:py-20 bg-white border-b border-[#E2E8F0]">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center">
-            
-            {/* Left Column: Text */}
-            <div className="lg:col-span-6 space-y-4 text-left">
-              <span className="inline-block px-2.5 py-0.5 bg-[#EFF6FF] text-[#2563EB] text-[10px] font-bold uppercase tracking-wider rounded font-mono">
-                IOS &amp; ANDROID APP
-              </span>
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-[#111827] leading-tight">
-                Transcribe on the go with the mobile app
-              </h2>
-              <p className="text-xs sm:text-sm text-[#64748B] leading-relaxed">
-                Shoot a video or record audio straight from your phone. The Veyra mobile experience transcribes it with AI in 150+ languages, and everything syncs to your workspace — capture on the go, edit and export at your desk.
-              </p>
 
-              <div className="pt-2">
-                <button
-                  onClick={scrollToImport}
-                  className="px-5 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-lg shadow-xs transition-all cursor-pointer active:scale-95"
-                >
-                  <span>Get the app</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Right Column: Clean Mobile Mockup */}
-            <div className="lg:col-span-6 flex justify-center">
-              <div className="w-full max-w-[280px] bg-white border-4 border-[#111827] rounded-[28px] p-3 shadow-lg space-y-3">
-                <div className="w-12 h-1 bg-[#111827] rounded-full mx-auto mb-1"></div>
-                
-                <div className="bg-[#F8FAFC] rounded-xl p-3 border border-[#E2E8F0] text-center space-y-1">
-                  <div className="w-8 h-8 rounded-full bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center mx-auto">
-                    <Mic className="w-4 h-4" />
-                  </div>
-                  <p className="text-[11px] font-mono text-[#2563EB] font-bold">00:42:18</p>
-                  <p className="text-[10px] text-[#64748B]">Recording live audio...</p>
-                </div>
-
-                <div className="space-y-1.5 text-left text-[11px]">
-                  <div className="p-2 bg-[#EFF6FF] rounded-lg border border-[#DBEAFE]">
-                    <p className="font-semibold text-[#2563EB]">Speaker 1</p>
-                    <p className="text-[#111827]">Transcribing speech directly on device.</p>
-                  </div>
-                  <div className="p-2 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                    <p className="font-semibold text-[#64748B]">Speaker 2</p>
-                    <p className="text-[#475569]">Syncs instantly with your desk workspace.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
 
       {/* =========================================================================
           5. USE CASES (Horizontal compact cards with controls)
@@ -778,79 +699,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
       </section>
 
       {/* =========================================================================
-          8. RELATED ARTICLES (Horizontal cards near bottom)
-          ========================================================================= */}
-      <section className="py-16 sm:py-20 bg-[#F8FAFC] border-b border-[#E2E8F0]">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-          
-          <div className="flex items-center justify-between mb-10">
-            <div>
-              <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111827]">
-                Related articles
-              </h2>
-              <p className="text-xs text-[#64748B] mt-1">
-                Guides, tutorials, and transcription best practices.
-              </p>
-            </div>
-            <button
-              onClick={() => onNavigate('/study')}
-              className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 cursor-pointer"
-            >
-              <span>View all guides</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {relatedArticles.map((art, idx) => (
-              <div
-                key={idx}
-                onClick={() => onNavigate('/study')}
-                className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden shadow-2xs hover:border-[#2563EB] transition-all cursor-pointer group flex flex-col"
-              >
-                {/* Visual Thumbnail */}
-                <div className="h-40 bg-[#EFF6FF] border-b border-[#E2E8F0] p-4 flex flex-col justify-between relative overflow-hidden group-hover:bg-[#DBEAFE]/40 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 bg-white text-[#2563EB] text-[10px] font-mono font-bold uppercase rounded border border-[#DBEAFE]">
-                      {art.tag}
-                    </span>
-                    <span className="text-[10px] text-[#64748B] font-mono">{art.readTime}</span>
-                  </div>
-
-                  <div className="flex items-center justify-center text-[#2563EB] py-2">
-                    <FileText className="w-10 h-10 opacity-70 group-hover:scale-105 transition-transform" />
-                  </div>
-
-                  <div className="text-[10px] font-mono text-[#64748B]">
-                    {art.date}
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div className="p-5 space-y-2 flex-1 flex flex-col justify-between text-left">
-                  <div className="space-y-1.5">
-                    <h3 className="text-sm font-bold text-[#111827] group-hover:text-[#2563EB] transition-colors leading-snug">
-                      {art.title}
-                    </h3>
-                    <p className="text-xs text-[#64748B] leading-relaxed line-clamp-2">
-                      {art.description}
-                    </p>
-                  </div>
-
-                  <div className="pt-3 flex items-center text-xs font-semibold text-[#2563EB] group-hover:text-[#1D4ED8]">
-                    <span>Read article</span>
-                    <ArrowRight className="w-3.5 h-3.5 ml-1 transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-        </div>
-      </section>
-
-      {/* =========================================================================
-          10. POPULAR VIDEO FORMATS (Compact pill links)
+          8. POPULAR VIDEO FORMATS (Compact pill links)
           ========================================================================= */}
       <section className="py-14 sm:py-16 bg-white border-b border-[#E2E8F0]">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 text-center">
