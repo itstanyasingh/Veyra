@@ -3,23 +3,22 @@ import {
   Upload, 
   Link as LinkIcon, 
   AlertCircle, 
+  AlertTriangle,
   ArrowRight,
   ShieldCheck,
-  Info,
   Loader2,
   FileVideo,
   FileAudio,
-  Trash2,
-  CheckCircle2,
-  FileCode
+  Trash2
 } from 'lucide-react';
 import { extractMediaMetadata } from '../../utils/mediaUtils';
 import { saveMedia } from '../../services/mediaStorage';
 import { createProject } from '../../services/projectStorage';
-import { runMediaProcessingPipeline, ProcessingProgressState } from '../../services/transcriptionService';
+import { runMediaProcessingPipeline, transcribeMediaUrl, ProcessingProgressState } from '../../services/transcriptionService';
 import { ProcessingView } from './ProcessingView';
 import { Project, MediaType } from '../../types';
 import { formatBytes } from '../../utils/formatters';
+import { isYouTubeUrl, extractYouTubeVideoId } from '../../utils/youtubeUtils';
 
 interface HomeImportAreaProps {
   onNavigate: (path: string) => void;
@@ -35,7 +34,11 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [urlInput, setUrlInput] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [urlStatus, setUrlStatus] = useState<{ type: 'notice' | 'success'; message: string } | null>(null);
+  const [urlWarning, setUrlWarning] = useState<{
+    message: string;
+    subMessage: string;
+    actionText?: string;
+  } | null>(null);
   const [isUrlValidating, setIsUrlValidating] = useState(false);
 
   // Active Processing State
@@ -66,16 +69,14 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
     return true;
   };
 
-  const handleProcessAndOpen = async (file: File | null, remoteUrl?: string, remoteName?: string) => {
+  const handleProcessFile = async (file: File) => {
     try {
       const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const fileName = file ? file.name : (remoteName || 'Remote Media');
+      const fileName = file.name;
       const cleanName = fileName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-      const fileSize = file ? file.size : 0;
-      const fileType = file ? file.type || 'video/mp4' : 'video/mp4';
-      const isAudio = file 
-        ? file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(fileName)
-        : /\.(mp3|wav|m4a|aac|ogg)$/i.test(fileName);
+      const fileSize = file.size;
+      const fileType = file.type || 'video/mp4';
+      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(fileName);
       const mediaType: MediaType = isAudio ? 'audio' : 'video';
 
       let duration = 60;
@@ -84,18 +85,15 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
       let aspectRatio: string | undefined;
       let thumbnailUrl: string | undefined;
 
-      // Extract metadata if local file
-      if (file) {
-        try {
-          const meta = await extractMediaMetadata(file, isAudio);
-          if (meta.duration && meta.duration > 0) duration = meta.duration;
-          width = meta.width;
-          height = meta.height;
-          aspectRatio = meta.aspectRatio;
-          thumbnailUrl = meta.thumbnailUrl;
-        } catch (err) {
-          console.warn('Metadata extraction non-fatal warning:', err);
-        }
+      try {
+        const meta = await extractMediaMetadata(file, isAudio);
+        if (meta.duration && meta.duration > 0) duration = meta.duration;
+        width = meta.width;
+        height = meta.height;
+        aspectRatio = meta.aspectRatio;
+        thumbnailUrl = meta.thumbnailUrl;
+      } catch (err) {
+        console.warn('Metadata extraction non-fatal warning:', err);
       }
 
       setProcessingFileMeta({
@@ -107,11 +105,9 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
       setIsProcessing(true);
 
       // Save binary file into IndexedDB for persistent offline playback
-      if (file) {
-        await saveMedia(projectId, file);
-      }
+      await saveMedia(projectId, file);
 
-      // Run transcription pipeline
+      // Run real transcription pipeline
       const { speakers, transcript, subtitles, summary } = await runMediaProcessingPipeline(
         fileName,
         duration,
@@ -129,12 +125,12 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         fileType,
         fileSize,
         mediaType,
+        sourceType: 'upload',
         duration,
         width,
         height,
         aspectRatio: aspectRatio || (mediaType === 'audio' ? undefined : '16:9'),
         thumbnailUrl,
-        mediaUrl: remoteUrl,
         status: 'ready',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -146,14 +142,72 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
 
       createProject(newProject);
 
-      // Navigate to the video workspace
+      // Navigate to workspace
       setTimeout(() => {
         onNavigate(`/project/${projectId}`);
       }, 300);
-    } catch (err) {
-      console.error('Processing error:', err);
+    } catch (err: any) {
+      console.error('File processing error:', err);
       setIsProcessing(false);
-      setErrorMsg('An unexpected error occurred during processing. Please try again.');
+      setErrorMsg(err.message || 'An error occurred during file transcription.');
+    }
+  };
+
+  const handleProcessUrl = async (url: string) => {
+    try {
+      const isYt = isYouTubeUrl(url);
+      const ytId = extractYouTubeVideoId(url);
+      const parsed = new URL(url);
+      const inferredName = parsed.pathname.split('/').pop()?.split('?')[0] || (isYt ? 'YouTube Video' : 'Remote Media');
+      const cleanName = inferredName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') || (isYt ? 'YouTube Video' : 'Remote Video Stream');
+      const isAudio = !isYt && /\.(mp3|wav|m4a|aac|ogg)$/i.test(inferredName);
+      const mediaType: MediaType = isAudio ? 'audio' : 'video';
+
+      setProcessingFileMeta({
+        fileName: inferredName,
+        fileSize: 0,
+        mediaType,
+        duration: 60,
+      });
+      setIsProcessing(true);
+
+      const result = await transcribeMediaUrl(url, inferredName, (progress) => {
+        setProcessingProgress(progress);
+      });
+
+      const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const finalTitle = result.fileName || cleanName;
+      const newProject: Project = {
+        id: projectId,
+        name: finalTitle,
+        fileName: result.fileName || inferredName,
+        fileType: isYt ? 'video/youtube' : (isAudio ? 'audio/mp3' : 'video/mp4'),
+        fileSize: result.fileSize || 0,
+        mediaType,
+        sourceType: isYt ? 'youtube' : 'upload',
+        youtubeVideoId: ytId || undefined,
+        originalUrl: url,
+        duration: result.duration || 60,
+        aspectRatio: isAudio ? undefined : '16:9',
+        mediaUrl: isYt ? undefined : url,
+        status: 'ready',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        speakers: result.speakers,
+        transcript: result.transcript,
+        subtitles: result.subtitles,
+        summary: result.summary,
+      };
+
+      createProject(newProject);
+
+      setTimeout(() => {
+        onNavigate(`/project/${projectId}`);
+      }, 300);
+    } catch (err: any) {
+      console.error('URL processing error:', err);
+      setIsProcessing(false);
+      setErrorMsg(err.message || 'Failed to process media URL.');
     }
   };
 
@@ -162,7 +216,6 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
     if (file && validateFile(file)) {
       setSelectedFile(file);
     }
-    // reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -187,48 +240,44 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
   const handleRemoveSelectedFile = () => {
     setSelectedFile(null);
     setErrorMsg(null);
+    setUrlWarning(null);
   };
 
   const handleUrlImport = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = urlInput.trim();
     if (!trimmed) {
-      setErrorMsg('Please enter a valid video or audio URL.');
+      setErrorMsg('Please enter a media URL.');
+      setUrlWarning(null);
       return;
     }
 
     setIsUrlValidating(true);
     setErrorMsg(null);
-    setUrlStatus(null);
+    setUrlWarning(null);
 
     try {
-      const parsed = new URL(trimmed);
+      let parsed: URL;
+      try {
+        parsed = new URL(trimmed);
+      } catch {
+        setErrorMsg('Please enter a valid URL.');
+        setIsUrlValidating(false);
+        return;
+      }
+
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         setErrorMsg('Please enter a valid URL starting with http:// or https://');
         setIsUrlValidating(false);
         return;
       }
 
-      // Check if it's direct media
-      const isDirectMedia = /\.(mp4|webm|mov|avi|mkv|mp3|wav|m4a|ogg|aac)(\?.*)?$/i.test(parsed.pathname);
-
-      if (isDirectMedia) {
-        const inferredName = parsed.pathname.split('/').pop()?.split('?')[0] || 'Remote Media';
-        setIsUrlValidating(false);
-        handleProcessAndOpen(null, trimmed, inferredName);
-      } else {
-        // Platform or external streaming URL
-        setTimeout(() => {
-          setIsUrlValidating(false);
-          setUrlStatus({
-            type: 'notice',
-            message: 'Link received. Connect a transcription backend to process this URL or upload the video file directly for browser transcription.'
-          });
-        }, 600);
-      }
-    } catch {
+      // Allow YouTube and direct media URLs
       setIsUrlValidating(false);
-      setErrorMsg('Please enter a valid URL (e.g., https://example.com/recording.mp4).');
+      handleProcessUrl(trimmed);
+    } catch (err: any) {
+      setIsUrlValidating(false);
+      setErrorMsg(err.message || 'An error occurred while validating the media link.');
     }
   };
 
@@ -265,7 +314,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
             onClick={() => {
               setActiveTab('upload');
               setErrorMsg(null);
-              setUrlStatus(null);
+              setUrlWarning(null);
             }}
             className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'upload'
@@ -281,7 +330,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
             onClick={() => {
               setActiveTab('link');
               setErrorMsg(null);
-              setUrlStatus(null);
+              setUrlWarning(null);
             }}
             className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'link'
@@ -338,7 +387,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleProcessAndOpen(selectedFile)}
+                  onClick={() => selectedFile && handleProcessFile(selectedFile)}
                   className="flex-1 px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-xs rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                 >
                   <span>Transcribe</span>
@@ -396,11 +445,11 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
           /* SECTION 2: URL LINK IMPORT TAB */
           <div className="p-5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-3.5">
             <div className="space-y-1">
-              <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-[#2563EB] font-mono">
-                PASTE YOUR VIDEO/AUDIO LINK
-              </span>
+              <h3 className="text-sm font-bold text-[#111827]">
+                Paste your video/audio link
+              </h3>
               <p className="text-xs text-[#64748B] leading-relaxed">
-                Paste a public media link or cloud recording to process directly.
+                Paste a supported video or audio URL to import it directly.
               </p>
             </div>
 
@@ -416,9 +465,9 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                   onChange={(e) => {
                     setUrlInput(e.target.value);
                     setErrorMsg(null);
-                    setUrlStatus(null);
+                    setUrlWarning(null);
                   }}
-                  placeholder="https://example.com/recording.mp4"
+                  placeholder="https://www.youtube.com/watch?v=... or media URL"
                   className="w-full pl-9 pr-3 py-2.5 bg-white border border-[#CBD5E1] rounded-lg text-xs text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] transition-all"
                 />
               </div>
@@ -432,12 +481,47 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <>
-                    <span>Import Link</span>
+                    <span>Import from link</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
               </button>
             </form>
+
+            <div className="text-[11px] text-[#64748B] font-mono">
+              Supports YouTube links and direct MP4, MOV, MP3 or WAV URLs
+            </div>
+
+            {/* Compact inline warning for YouTube / external platforms */}
+            {urlWarning && (
+              <div className="p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg text-xs text-[#92400E] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-[#D97706] shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-[#92400E] leading-tight">
+                      {urlWarning.message}
+                    </p>
+                    <p className="text-[11px] text-[#B45309] leading-snug">
+                      {urlWarning.subMessage}
+                    </p>
+                  </div>
+                </div>
+
+                {urlWarning.actionText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('upload');
+                      setUrlWarning(null);
+                      setErrorMsg(null);
+                    }}
+                    className="px-3 py-1 bg-white hover:bg-[#FEF3C7] border border-[#FCD34D] text-[#92400E] text-xs font-semibold rounded-md shadow-2xs transition-colors shrink-0 cursor-pointer"
+                  >
+                    {urlWarning.actionText}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -446,14 +530,6 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
           <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#DC2626] flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {/* URL Notice/Status */}
-        {urlStatus && (
-          <div className="p-3.5 bg-[#EFF6FF] border border-[#DBEAFE] rounded-lg text-xs text-[#1E40AF] flex items-start gap-2.5">
-            <Info className="w-4 h-4 text-[#2563EB] shrink-0 mt-0.5" />
-            <span className="leading-relaxed">{urlStatus.message}</span>
           </div>
         )}
 

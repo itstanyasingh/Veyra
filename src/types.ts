@@ -64,6 +64,8 @@ export interface ProjectSummary {
   actionItems: string[];
 }
 
+export type SourceType = 'upload' | 'youtube';
+
 export interface Project {
   id: string;
   name: string;
@@ -71,6 +73,9 @@ export interface Project {
   fileType: string;
   fileSize: number; // in bytes
   mediaType: MediaType;
+  sourceType?: SourceType;
+  youtubeVideoId?: string;
+  originalUrl?: string;
   duration?: number; // in seconds
   width?: number; // in pixels (for video)
   height?: number; // in pixels (for video)
@@ -79,7 +84,7 @@ export interface Project {
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
-  mediaUrl?: string; // Optional local blob / object url
+  mediaUrl?: string; // Optional local blob / object url (for uploaded files)
   language?: string;
   speakers?: Speaker[];
   transcript?: TranscriptSegment[];

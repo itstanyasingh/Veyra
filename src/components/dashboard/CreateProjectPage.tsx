@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Video, Music, Trash2, ArrowRight, Link, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Video, Music, Trash2, ArrowRight, Link, CheckCircle2, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { FileDropzone } from './FileDropzone';
 import { formatBytes, formatDuration } from '../../utils/formatters';
 import { createProject } from '../../services/projectStorage';
 import { saveMedia } from '../../services/mediaStorage';
 import { extractMediaMetadata, ExtractedMediaMetadata } from '../../utils/mediaUtils';
+import { transcribeMediaUrl } from '../../services/transcriptionService';
 import { Project, MediaType } from '../../types';
+import { isYouTubeUrl, extractYouTubeVideoId } from '../../utils/youtubeUtils';
 
 interface CreateProjectPageProps {
   onNavigate: (path: string) => void;
@@ -28,6 +30,11 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
   const [urlInput, setUrlInput] = useState<string>('');
   const [urlProjectName, setUrlProjectName] = useState<string>('');
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [urlWarning, setUrlWarning] = useState<{
+    message: string;
+    subMessage: string;
+    actionText?: string;
+  } | null>(null);
 
   // When a file is chosen, extract default name and full metadata
   const handleFileSelected = async (file: File) => {
@@ -93,6 +100,7 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
         fileType: selectedFile.type || (mediaType === 'video' ? 'video/mp4' : 'audio/mp3'),
         fileSize: selectedFile.size,
         mediaType: mediaType,
+        sourceType: 'upload',
         duration: extractedMeta?.duration,
         width: extractedMeta?.width,
         height: extractedMeta?.height,
@@ -112,40 +120,71 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
     }
   };
 
-  const handleCreateFromUrl = () => {
+  const handleCreateFromUrl = async () => {
     setUrlError(null);
+    setUrlWarning(null);
     const trimmedUrl = urlInput.trim();
     if (!trimmedUrl) {
-      setUrlError('Please enter a valid media URL.');
+      setUrlError('Please enter a media URL.');
       return;
     }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmedUrl);
+    } catch {
+      setUrlError('Please enter a valid URL.');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      setUrlError('Please enter a valid URL starting with http:// or https://');
+      return;
+    }
+
+    setIsSaving(true);
 
     try {
-      new URL(trimmedUrl);
-    } catch {
-      setUrlError('Please enter a valid URL (e.g., https://example.com/video.mp4)');
-      return;
+      const isYt = isYouTubeUrl(trimmedUrl);
+      const ytId = extractYouTubeVideoId(trimmedUrl);
+      const defaultName = urlProjectName.trim() || (isYt ? `YouTube Video` : (trimmedUrl.split('/').pop()?.split('?')[0] || 'Imported Media'));
+
+      const result = await transcribeMediaUrl(trimmedUrl, defaultName, () => {});
+
+      const newId = 'proj_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      const nowIso = new Date().toISOString();
+      const isAudio = !isYt && /\.(mp3|wav|m4a|aac|ogg)$/i.test(trimmedUrl);
+      const finalTitle = result.fileName || defaultName;
+
+      const newProject: Project = {
+        id: newId,
+        name: finalTitle,
+        fileName: result.fileName || trimmedUrl.split('/').pop()?.split('?')[0] || (isYt ? 'YouTube Video' : isAudio ? 'remote_audio.mp3' : 'remote_media.mp4'),
+        fileType: isYt ? 'video/youtube' : (isAudio ? 'audio/mp3' : 'video/mp4'),
+        fileSize: result.fileSize || 0,
+        mediaType: isAudio ? 'audio' : 'video',
+        sourceType: isYt ? 'youtube' : 'upload',
+        youtubeVideoId: ytId || undefined,
+        originalUrl: trimmedUrl,
+        duration: result.duration || 120,
+        mediaUrl: isYt ? undefined : trimmedUrl,
+        status: 'ready',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        speakers: result.speakers,
+        transcript: result.transcript,
+        subtitles: result.subtitles,
+        summary: result.summary,
+      };
+
+      createProject(newProject);
+      onNavigate(`/project/${newId}`);
+    } catch (err: any) {
+      console.error('URL import error:', err);
+      setUrlError(err.message || 'Failed to process media URL.');
+    } finally {
+      setIsSaving(false);
     }
-
-    const defaultName = urlProjectName.trim() || trimmedUrl.split('/').pop()?.split('?')[0] || 'Imported Media';
-    const newId = 'proj_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-    const nowIso = new Date().toISOString();
-
-    const newProject: Project = {
-      id: newId,
-      name: defaultName,
-      fileName: trimmedUrl.split('/').pop()?.split('?')[0] || 'remote_media.mp4',
-      fileType: 'video/mp4',
-      fileSize: 0,
-      mediaType: 'video',
-      mediaUrl: trimmedUrl,
-      status: 'ready',
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
-    createProject(newProject);
-    onNavigate(`/project/${newId}`);
   };
 
   return (
@@ -336,11 +375,11 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
             <div className="flex items-center gap-2 mb-2">
               <Link className="w-4 h-4 text-[#111111]" />
               <h3 className="text-sm font-bold uppercase tracking-wider text-[#000000]">
-                IMPORT FROM PUBLIC URL
+                PASTE DIRECT MEDIA LINK
               </h3>
             </div>
             <p className="text-xs text-[#666666] leading-relaxed">
-              Enter a direct link to a supported media stream (.mp4, .m3u8, .webm) or public video file.
+              Paste a direct video or audio file URL.
             </p>
           </div>
 
@@ -356,10 +395,14 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
                 onChange={(e) => {
                   setUrlInput(e.target.value);
                   if (urlError) setUrlError(null);
+                  if (urlWarning) setUrlWarning(null);
                 }}
-                placeholder="https://storage.googleapis.com/example/keynote.mp4"
+                placeholder="https://www.youtube.com/watch?v=... or direct media link"
                 className="w-full bg-[#FAFAFA] border border-[#D4D4D4] focus:border-[#111111] focus:bg-white rounded-md px-3.5 py-2.5 text-xs sm:text-sm font-mono-time text-[#000000] focus:outline-none transition-colors"
               />
+              <p className="text-[11px] text-[#666666] font-mono">
+                YouTube video URLs or direct MP4, MOV, MP3, WAV links
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -376,10 +419,54 @@ export const CreateProjectPage: React.FC<CreateProjectPageProps> = ({ onNavigate
               />
             </div>
 
+            {urlWarning && (
+              <div className="p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-xs text-[#92400E] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-[#D97706] shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-[#92400E] leading-tight">
+                      {urlWarning.message}
+                    </p>
+                    <p className="text-[11px] text-[#B45309] leading-snug">
+                      {urlWarning.subMessage}
+                    </p>
+                  </div>
+                </div>
+
+                {urlWarning.actionText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('upload');
+                      setUrlWarning(null);
+                      setUrlError(null);
+                    }}
+                    className="px-3 py-1 bg-white hover:bg-[#FEF3C7] border border-[#FCD34D] text-[#92400E] text-xs font-semibold rounded shadow-2xs transition-colors shrink-0 cursor-pointer"
+                  >
+                    {urlWarning.actionText}
+                  </button>
+                )}
+              </div>
+            )}
+
             {urlError && (
-              <div className="p-3 bg-[#F5F5F5] border border-[#D4D4D4] rounded-md flex items-center gap-2 text-xs text-[#111111]">
-                <AlertCircle className="w-4 h-4 text-[#111111] shrink-0" />
-                <span>{urlError}</span>
+              <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-[#DC2626]">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{urlError}</span>
+                </div>
+                {(urlError.toLowerCase().includes('upload') || urlError.toLowerCase().includes('captions')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('upload');
+                      setUrlError(null);
+                    }}
+                    className="px-3 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] text-xs font-semibold rounded shrink-0 cursor-pointer shadow-2xs transition-colors"
+                  >
+                    Upload File Instead
+                  </button>
+                )}
               </div>
             )}
           </div>

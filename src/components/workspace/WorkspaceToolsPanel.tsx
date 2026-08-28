@@ -118,16 +118,22 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   }, [searchQuery, segments, speakerMap]);
 
   // Update parent search match timestamps for timeline pins
+  const prevMatchesStrRef = useRef<string>('');
+  const onSearchMatchesChangedRef = useRef(onSearchMatchesChanged);
   useEffect(() => {
-    if (onSearchMatchesChanged) {
-      if (searchQuery.trim()) {
-        const tsList = searchResults.map((r) => r.startTime);
-        onSearchMatchesChanged(tsList);
-      } else {
-        onSearchMatchesChanged([]);
+    onSearchMatchesChangedRef.current = onSearchMatchesChanged;
+  }, [onSearchMatchesChanged]);
+
+  useEffect(() => {
+    if (onSearchMatchesChangedRef.current) {
+      const tsList = searchQuery.trim() ? searchResults.map((r) => r.startTime) : [];
+      const key = tsList.join(',');
+      if (prevMatchesStrRef.current !== key) {
+        prevMatchesStrRef.current = key;
+        onSearchMatchesChangedRef.current(tsList);
       }
     }
-  }, [searchQuery, searchResults, onSearchMatchesChanged]);
+  }, [searchQuery, searchResults]);
 
   // Handle Speaker Renaming (replaces across all segments & project state)
   const handleSaveSpeakerName = () => {

@@ -59,21 +59,27 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#EFF6FF] border border-[#DBEAFE] rounded text-[11px] font-mono-time text-[#2563EB] font-bold self-start sm:self-auto shrink-0">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
-            <span>PROCESSING ({progress.percentage}%)</span>
+            <span>PROCESSING{progress.percentage > 0 ? ` (${progress.percentage}%)` : ''}</span>
           </div>
         </div>
 
         {/* Progress Bar */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs font-mono-time">
-            <span className="text-[#64748B]">{progress.message}</span>
-            <span className="font-semibold text-[#2563EB]">{progress.percentage}%</span>
+            <span className="text-[#111827] font-medium">{progress.message}</span>
+            {progress.percentage > 0 && (
+              <span className="font-semibold text-[#2563EB]">{progress.percentage}%</span>
+            )}
           </div>
-          <div className="w-full h-2 bg-[#F1F5F9] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-[#2563EB] transition-all duration-300 ease-out"
-              style={{ width: `${progress.percentage}%` }}
-            />
+          <div className="w-full h-2 bg-[#F1F5F9] rounded-full overflow-hidden relative">
+            {progress.percentage > 0 ? (
+              <div
+                className="h-full bg-[#2563EB] transition-all duration-300 ease-out"
+                style={{ width: `${progress.percentage}%` }}
+              />
+            ) : (
+              <div className="h-full bg-[#2563EB] w-1/3 animate-[pulse_1.5s_ease-in-out_infinite] rounded-full" />
+            )}
           </div>
         </div>
 

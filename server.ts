@@ -3,8 +3,57 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { isYouTubeUrl, extractYouTubeVideoId, normalizeYouTubeUrl } from './server/youtube';
 
 dotenv.config();
+
+function parseTimestampToSeconds(ts: string | number | undefined): number {
+  if (typeof ts === 'number') return Math.max(0, ts);
+  if (!ts || typeof ts !== 'string') return 0;
+  const clean = ts.trim();
+  if (/^\d+(\.\d+)?$/.test(clean)) return parseFloat(clean);
+  const parts = clean.split(':').map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0] || 0;
+  return 0;
+}
+
+function isSafePublicUrl(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+
+    const hostname = u.hostname.toLowerCase();
+    
+    // Block localhost, IP formats, internal domains
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0' ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.local')
+    ) {
+      return false;
+    }
+
+    // Block private IPv4 ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x)
+    const ipMatch = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipMatch) {
+      const [, p1, p2] = ipMatch.map(Number);
+      if (p1 === 10 || p1 === 127 || p1 === 0) return false;
+      if (p1 === 169 && p2 === 254) return false; // GCP Metadata Server
+      if (p1 === 192 && p2 === 168) return false;
+      if (p1 === 172 && p2 >= 16 && p2 <= 31) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -109,9 +158,9 @@ Output strictly valid JSON with this exact schema:
 
       contents.push(promptText);
 
-      // Call Gemini 2.5 Flash for multimodal audio processing & structured intelligence
+      // Call Gemini 3.7 Flash for multimodal audio processing & structured intelligence
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.7-flash',
         contents: contents as any,
         config: {
           responseMimeType: 'application/json',
@@ -150,6 +199,367 @@ Output strictly valid JSON with this exact schema:
     }
   });
 
+  // 2b. Direct Media URL Transcription
+  app.post('/api/transcribe-url', async (req, res) => {
+    try {
+      const { url, projectName, contextHint } = req.body;
+      if (!url) {
+        return res.status(400).json({ error: 'Please enter a valid media URL.' });
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        return res.status(400).json({ error: 'Invalid URL format. Please provide a valid HTTP or HTTPS link.' });
+      }
+
+      // Security: SSRF validation against internal IP addresses and restricted schemes
+      if (!isSafePublicUrl(url)) {
+        return res.status(400).json({ error: 'Invalid or restricted URL target. Please enter a public web media link.' });
+      }
+
+      const ai = getGeminiClient();
+      if (!ai) {
+        return res.status(500).json({
+          error: 'GEMINI_API_KEY is missing. Please configure it in your environment settings.',
+        });
+      }
+
+      const host = parsedUrl.hostname.toLowerCase();
+
+      // Direct YouTube Video Input to Gemini API
+      if (isYouTubeUrl(url)) {
+        const canonicalUrl = normalizeYouTubeUrl(url);
+        if (!canonicalUrl) {
+          return res.status(400).json({ error: 'Please enter a valid YouTube video URL.' });
+        }
+
+        const transcriptionPrompt = `You are a professional transcription engine.
+
+Transcribe the entire provided YouTube video.
+
+Requirements:
+
+1. Transcribe the spoken audio accurately.
+2. Do not summarize.
+3. Do not omit spoken content.
+4. Preserve the original meaning and wording.
+5. Detect the primary spoken language automatically.
+6. Support multilingual speech.
+7. Include timestamps.
+8. Identify different speakers when reasonably possible.
+9. Do not invent speech that cannot be heard.
+10. If a portion of the audio is unclear, mark it as [inaudible] rather than hallucinating.
+11. Return structured transcript segments.
+
+Each segment must contain:
+- start timestamp
+- end timestamp
+- speaker
+- text
+
+Return valid JSON matching this exact schema:
+{
+  "title": "Title of the video or empty string if unavailable",
+  "language": "Primary language detected e.g. English",
+  "duration": "Duration in MM:SS or HH:MM:SS format or empty string",
+  "segments": [
+    {
+      "start": "00:00",
+      "end": "00:08",
+      "speaker": "Speaker 1",
+      "text": "Transcribed spoken content"
+    }
+  ],
+  "summary": {
+    "overview": "Overview summary",
+    "keyPoints": ["Key point 1", "Key point 2"],
+    "chapters": [
+      { "title": "Chapter Title", "start": "00:00", "end": "01:00", "summary": "Chapter description" }
+    ],
+    "actionItems": ["Action item 1"]
+  }
+}`;
+
+        try {
+          const aiResponse = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: [
+              {
+                fileData: {
+                  fileUri: canonicalUrl,
+                  mimeType: 'video/mp4',
+                },
+              },
+              transcriptionPrompt,
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.2,
+            },
+          });
+
+          const rawText = aiResponse.text || '{}';
+          const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+          let parsedData: any = {};
+          try {
+            parsedData = JSON.parse(cleanJson);
+          } catch {
+            console.error('Failed to parse Gemini JSON response:', rawText);
+          }
+
+          const rawSegments = Array.isArray(parsedData.segments) ? parsedData.segments : [];
+
+          // Process speakers & segments
+          const speakerMap = new Map<string, string>();
+          const speakersList: { id: string; name: string }[] = [];
+
+          const transcript = rawSegments.map((seg: any, idx: number) => {
+            const rawSpeakerName = (seg.speaker || 'Speaker 1').trim();
+            if (!speakerMap.has(rawSpeakerName)) {
+              const spkId = `spk_${speakerMap.size + 1}`;
+              speakerMap.set(rawSpeakerName, spkId);
+              speakersList.push({ id: spkId, name: rawSpeakerName });
+            }
+            const speakerId = speakerMap.get(rawSpeakerName)!;
+
+            const startTime = parseTimestampToSeconds(seg.start);
+            const endTime = parseTimestampToSeconds(seg.end) || (startTime + 5);
+
+            return {
+              id: `seg_${idx + 1}`,
+              speakerId,
+              startTime,
+              endTime,
+              text: (seg.text || '').trim(),
+            };
+          });
+
+          if (speakersList.length === 0) {
+            speakersList.push({ id: 'spk_1', name: 'Speaker 1' });
+          }
+
+          const subtitles = transcript.map((seg, idx) => ({
+            id: `sub_${idx + 1}`,
+            index: idx + 1,
+            startTime: seg.startTime,
+            endTime: seg.endTime,
+            text: seg.text,
+          }));
+
+          const title = (parsedData.title && parsedData.title.trim()) ? parsedData.title.trim() : (projectName || 'YouTube Video');
+          const language = parsedData.language || 'English';
+          const durationSec = parseTimestampToSeconds(parsedData.duration) || 
+            (transcript.length > 0 ? transcript[transcript.length - 1].endTime : 120);
+
+          const summary = parsedData.summary || {
+            overview: `Automated transcription of YouTube video: ${title}`,
+            keyPoints: ['Accurately transcribed spoken audio directly from video.'],
+            chapters: [{ title: 'Main Segment', startTime: 0, endTime: durationSec, summary: 'Full video discussion' }],
+            actionItems: ['Review transcript timecodes.'],
+          };
+
+          return res.json({
+            fileName: title,
+            mediaUrl: canonicalUrl,
+            duration: durationSec,
+            language,
+            fileSize: 0,
+            speakers: speakersList,
+            transcript,
+            subtitles,
+            summary,
+          });
+        } catch (ytErr: any) {
+          console.error('Gemini YouTube video error:', ytErr);
+          const errMsg = String(ytErr?.message || ytErr || '');
+
+          if (
+            errMsg.toLowerCase().includes('token') ||
+            errMsg.toLowerCase().includes('1048576') ||
+            errMsg.toLowerCase().includes('exceeds')
+          ) {
+            return res.status(400).json({
+              error: 'This YouTube video exceeds Gemini\'s maximum direct video length (~45 minutes). Please upload the audio/video file directly or try a shorter video.',
+            });
+          }
+
+          if (
+            errMsg.toLowerCase().includes('private') ||
+            errMsg.toLowerCase().includes('permission') ||
+            errMsg.toLowerCase().includes('unauthorized') ||
+            errMsg.toLowerCase().includes('login')
+          ) {
+            return res.status(400).json({
+              error: 'This video is private or restricted and cannot be processed. Please use a public YouTube video.',
+            });
+          }
+
+          if (
+            errMsg.toLowerCase().includes('not found') ||
+            errMsg.toLowerCase().includes('404') ||
+            errMsg.toLowerCase().includes('access') ||
+            errMsg.toLowerCase().includes('fetch') ||
+            errMsg.toLowerCase().includes('failed')
+          ) {
+            return res.status(400).json({
+              error: 'Gemini could not access this YouTube video. Make sure the video is public and try again.',
+            });
+          }
+
+          return res.status(400).json({
+            error: ytErr?.message || "We couldn't process this video right now. Please try again.",
+          });
+        }
+      }
+
+      // Attempt to download direct public media stream (MP4, MOV, MP3, WAV, etc.)
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+          Accept: 'audio/*,video/*,*/*',
+        },
+        signal: AbortSignal.timeout(30000), // 30 second timeout
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({
+          error: `Unable to access media from URL (HTTP ${response.status}: ${response.statusText}). Please verify the link is publicly accessible.`,
+        });
+      }
+
+      const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+      if (contentType.includes('text/html')) {
+        return res.status(400).json({
+          error: "This URL points to an HTML web page rather than a direct media file. Please provide a direct link to an MP4, MOV, MP3, or WAV file, or paste a supported YouTube video URL.",
+        });
+      }
+
+      const buffer = await response.arrayBuffer();
+      if (!buffer || buffer.byteLength === 0) {
+        return res.status(400).json({
+          error: 'The remote media file is empty (0 bytes).',
+        });
+      }
+
+      // Cap at 48MB for direct inline payload
+      if (buffer.byteLength > 48 * 1024 * 1024) {
+        return res.status(400).json({
+          error: `The media file at this URL is too large (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB). Maximum allowed URL download size is 48MB.`,
+        });
+      }
+
+      const base64Audio = Buffer.from(buffer).toString('base64');
+      const inferredName = projectName || parsedUrl.pathname.split('/').pop()?.split('?')[0] || 'Remote Media';
+      const mimeType = contentType.startsWith('audio/') || contentType.startsWith('video/')
+        ? contentType.split(';')[0]
+        : 'audio/mp3';
+
+      const promptText = `
+You are Veyra's professional speech-to-text, speaker diarization, and video intelligence engine.
+Analyze the provided audio/video recording for file: "${inferredName}".
+${contextHint ? `Context hint: ${contextHint}` : ''}
+
+CRITICAL REQUIREMENTS:
+1. Transcribe the spoken dialogue verbatim and accurately.
+2. Diarize distinct speakers (e.g., "Speaker 1", "Speaker 2", or actual names if stated in dialogue).
+3. Provide realistic start and end timestamps (in seconds) for each segment. Segment duration should normally be 4-15 seconds per segment.
+4. Output structured chapters with timestamps.
+5. Provide a clear executive overview summary, 3-6 key takeaways, and actionable follow-ups.
+
+Output strictly valid JSON with this exact schema:
+{
+  "speakers": [
+    { "id": "spk_1", "name": "Speaker 1" },
+    { "id": "spk_2", "name": "Speaker 2" }
+  ],
+  "transcript": [
+    {
+      "id": "seg_1",
+      "speakerId": "spk_1",
+      "startTime": 0.0,
+      "endTime": 5.4,
+      "text": "Exact transcribed text."
+    }
+  ],
+  "summary": {
+    "overview": "Comprehensive overview of the discussion.",
+    "keyPoints": [
+      "Key point 1",
+      "Key point 2"
+    ],
+    "chapters": [
+      {
+        "title": "Chapter title",
+        "startTime": 0,
+        "endTime": 30,
+        "summary": "Short chapter description."
+      }
+    ],
+    "actionItems": [
+      "Action item 1",
+      "Action item 2"
+    ]
+  }
+}
+`;
+
+      const aiResponse = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: [
+          {
+            inlineData: {
+              data: base64Audio,
+              mimeType,
+            },
+          },
+          promptText,
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      });
+
+      const rawText = aiResponse.text || '{}';
+      const parsedData = JSON.parse(rawText);
+
+      const subtitles = (parsedData.transcript || []).map((seg: any, idx: number) => ({
+        id: `sub_${idx + 1}`,
+        index: idx + 1,
+        startTime: Number(seg.startTime) || 0,
+        endTime: Number(seg.endTime) || (Number(seg.startTime) + 4),
+        text: seg.text || '',
+      }));
+
+      // Approximate duration from last segment or header
+      const lastSeg = (parsedData.transcript || []).slice(-1)[0];
+      const estimatedDuration = lastSeg ? Math.ceil(Number(lastSeg.endTime) || 60) : 60;
+
+      return res.json({
+        fileName: inferredName,
+        mediaUrl: url,
+        duration: estimatedDuration,
+        fileSize: buffer.byteLength,
+        speakers: parsedData.speakers || [{ id: 'spk_1', name: 'Speaker 1' }],
+        transcript: parsedData.transcript || [],
+        subtitles,
+        summary: parsedData.summary || {
+          overview: `Automated transcription of ${inferredName}.`,
+          keyPoints: ['Accurately transcribed and indexed dialogue'],
+          chapters: [{ title: 'Main Discussion', startTime: 0, endTime: estimatedDuration, summary: 'Full recording' }],
+          actionItems: ['Review and verify transcript timecodes'],
+        },
+      });
+    } catch (err: any) {
+      console.error('URL Transcription API error:', err);
+      return res.status(500).json({
+        error: err.message || 'Failed to download and transcribe media from the specified URL.',
+      });
+    }
+  });
+
   // 3. Real AI Q&A Grounded in Video Transcript
   app.post('/api/ai/ask', async (req, res) => {
     try {
@@ -178,7 +588,7 @@ ${prompt}
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.7-flash',
         contents: userContent,
         config: {
           systemInstruction,
@@ -227,7 +637,7 @@ Output strictly valid JSON with this schema:
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -283,7 +693,7 @@ Output strictly valid JSON matching this schema:
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',

@@ -6,15 +6,19 @@ import { Project } from '../../types';
 interface RenameProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  project: Project | null;
-  onSave: (id: string, newName: string) => void;
+  project?: Project | null;
+  initialName?: string;
+  onSave?: (id: string, newName: string) => void;
+  onRename?: (newName: string) => void;
 }
 
 export const RenameProjectModal: React.FC<RenameProjectModalProps> = ({
   isOpen,
   onClose,
   project,
+  initialName,
   onSave,
+  onRename,
 }) => {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -23,8 +27,11 @@ export const RenameProjectModal: React.FC<RenameProjectModalProps> = ({
     if (project) {
       setName(project.name);
       setError(null);
+    } else if (initialName !== undefined) {
+      setName(initialName);
+      setError(null);
     }
-  }, [project, isOpen]);
+  }, [project, initialName, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,13 +41,16 @@ export const RenameProjectModal: React.FC<RenameProjectModalProps> = ({
       return;
     }
 
-    if (project) {
+    if (project && onSave) {
       onSave(project.id, trimmed);
+      onClose();
+    } else if (onRename) {
+      onRename(trimmed);
       onClose();
     }
   };
 
-  if (!project) return null;
+  if (!project && initialName === undefined) return null;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Rename Project" maxWidth="sm">

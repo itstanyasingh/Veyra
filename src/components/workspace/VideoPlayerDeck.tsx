@@ -11,13 +11,18 @@ import {
   AlertCircle,
   Music,
   RefreshCw,
-  Subtitles
 } from 'lucide-react';
 import { formatDuration } from '../../utils/formatters';
-import { MediaType, TranscriptSegment, SubtitleCue } from '../../types';
+import { MediaType, SourceType, TranscriptSegment, SubtitleCue } from '../../types';
+import { YouTubePlayer } from '../media/YouTubePlayer';
+import { isYouTubeUrl, extractYouTubeVideoId } from '../../utils/youtubeUtils';
+import { getCaptionChunk } from '../../utils/captionUtils';
 
 interface VideoPlayerDeckProps {
-  mediaUrl: string;
+  sourceType?: SourceType;
+  youtubeVideoId?: string;
+  originalUrl?: string;
+  mediaUrl?: string;
   mediaType: MediaType;
   fileName?: string;
   aspectRatio?: string;
@@ -37,6 +42,9 @@ interface VideoPlayerDeckProps {
 const SPEED_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
+  sourceType,
+  youtubeVideoId,
+  originalUrl,
   mediaUrl,
   mediaType,
   fileName,
@@ -56,6 +64,14 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const ytControllerRef = useRef<{
+    seek: (time: number) => void;
+    play: () => void;
+    pause: () => void;
+    setVolume: (vol: number) => void;
+    setMuted: (muted: boolean) => void;
+    setRate: (rate: number) => void;
+  } | null>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [internalTime, setInternalTime] = useState<number>(0);
@@ -68,11 +84,24 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(true);
 
+  // Detect YouTube vs Local Upload
+  const isYouTube = sourceType === 'youtube' || Boolean(youtubeVideoId) || isYouTubeUrl(originalUrl || '') || isYouTubeUrl(mediaUrl || '');
+  const activeYtVideoId = youtubeVideoId || extractYouTubeVideoId(originalUrl || '') || extractYouTubeVideoId(mediaUrl || '') || '';
+
   const getMediaElement = useCallback((): HTMLMediaElement | null => {
     return mediaType === 'video' ? videoRef.current : audioRef.current;
   }, [mediaType]);
 
   const togglePlay = useCallback(() => {
+    if (isYouTube) {
+      if (isPlaying) {
+        ytControllerRef.current?.pause();
+      } else {
+        ytControllerRef.current?.play();
+      }
+      return;
+    }
+
     const el = getMediaElement();
     if (!el) return;
 
@@ -83,29 +112,63 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
     } else {
       el.pause();
     }
-  }, [getMediaElement]);
+  }, [isYouTube, isPlaying, getMediaElement]);
 
   const seekTo = useCallback((time: number) => {
-    const el = getMediaElement();
-    const safeDuration = el?.duration || mediaDuration || duration || 0;
+    const safeDuration = mediaDuration || duration || 0;
     const target = Math.max(0, Math.min(safeDuration, time));
-    if (el) {
-      el.currentTime = target;
+
+    if (isYouTube) {
+      ytControllerRef.current?.seek(target);
+    } else {
+      const el = getMediaElement();
+      if (el) {
+        el.currentTime = target;
+      }
     }
     setInternalTime(target);
-    onTimeUpdateCallback(target);
-  }, [getMediaElement, mediaDuration, duration, onTimeUpdateCallback]);
+    onTimeUpdateCallbackRef.current?.(target);
+  }, [isYouTube, getMediaElement, mediaDuration, duration]);
+
+  const onTimeUpdateCallbackRef = useRef(onTimeUpdateCallback);
+  const onDurationLoadedRef = useRef(onDurationLoaded);
+  const playerRefCallbackRef = useRef(playerRefCallback);
+
+  useEffect(() => {
+    onTimeUpdateCallbackRef.current = onTimeUpdateCallback;
+    onDurationLoadedRef.current = onDurationLoaded;
+    playerRefCallbackRef.current = playerRefCallback;
+  }, [onTimeUpdateCallback, onDurationLoaded, playerRefCallback]);
 
   // Expose controller to parent
   useEffect(() => {
-    if (playerRefCallback) {
-      playerRefCallback({
+    if (playerRefCallbackRef.current) {
+      playerRefCallbackRef.current({
         seek: (t: number) => seekTo(t),
-        play: () => getMediaElement()?.play(),
-        pause: () => getMediaElement()?.pause(),
+        play: () => {
+          if (isYouTube) {
+            ytControllerRef.current?.play();
+          } else {
+            getMediaElement()?.play();
+          }
+        },
+        pause: () => {
+          if (isYouTube) {
+            ytControllerRef.current?.pause();
+          } else {
+            getMediaElement()?.pause();
+          }
+        },
       });
     }
-  }, [playerRefCallback, seekTo, getMediaElement]);
+  }, [isYouTube, seekTo, getMediaElement]);
+
+  // Sync internal time when external currentTime changes
+  useEffect(() => {
+    if (Math.abs(internalTime - currentTime) > 0.3) {
+      setInternalTime(currentTime);
+    }
+  }, [currentTime]);
 
   const handleTimelineChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
@@ -113,14 +176,20 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
   };
 
   const jumpSeconds = (seconds: number) => {
-    const el = getMediaElement();
-    const curr = el ? el.currentTime : internalTime;
-    seekTo(curr + seconds);
+    seekTo(internalTime + seconds);
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setVolume(val);
+
+    if (isYouTube) {
+      ytControllerRef.current?.setVolume(val);
+      ytControllerRef.current?.setMuted(val === 0);
+      setIsMuted(val === 0);
+      return;
+    }
+
     const el = getMediaElement();
     if (el) {
       el.volume = val;
@@ -135,22 +204,34 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
   };
 
   const toggleMute = () => {
+    const nextMute = !isMuted;
+    setIsMuted(nextMute);
+
+    if (isYouTube) {
+      ytControllerRef.current?.setMuted(nextMute);
+      return;
+    }
+
     const el = getMediaElement();
     if (!el) return;
 
-    if (isMuted) {
+    if (nextMute) {
+      el.muted = true;
+    } else {
       el.muted = false;
-      setIsMuted(false);
       el.volume = volume > 0 ? volume : 0.8;
       setVolume(volume > 0 ? volume : 0.8);
-    } else {
-      el.muted = true;
-      setIsMuted(true);
     }
   };
 
   const handleRateChange = (rate: number) => {
     setPlaybackRate(rate);
+
+    if (isYouTube) {
+      ytControllerRef.current?.setRate(rate);
+      return;
+    }
+
     const el = getMediaElement();
     if (el) {
       el.playbackRate = rate;
@@ -214,8 +295,10 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, mediaType]);
 
-  // Media event listeners
+  // HTML5 Media event listeners (Uploads only)
   useEffect(() => {
+    if (isYouTube) return;
+
     const el = getMediaElement();
     if (!el) return;
 
@@ -224,7 +307,7 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
 
     const handleTimeUpdate = () => {
       setInternalTime(el.currentTime);
-      onTimeUpdateCallback(el.currentTime);
+      onTimeUpdateCallbackRef.current?.(el.currentTime);
     };
 
     const handleLoadedMetadata = () => {
@@ -233,9 +316,9 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
       if (isFinite(el.duration) && !isNaN(el.duration)) {
         setMediaDuration(el.duration);
         if (el instanceof HTMLVideoElement) {
-          onDurationLoaded?.(el.duration, el.videoWidth, el.videoHeight);
+          onDurationLoadedRef.current?.(el.duration, el.videoWidth, el.videoHeight);
         } else {
-          onDurationLoaded?.(el.duration);
+          onDurationLoadedRef.current?.(el.duration);
         }
       }
     };
@@ -284,7 +367,7 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
       el.removeEventListener('ended', handleEnded);
       el.removeEventListener('error', handleError);
     };
-  }, [getMediaElement, mediaUrl, onDurationLoaded, onTimeUpdateCallback]);
+  }, [isYouTube, getMediaElement, mediaUrl]);
 
   // Current active subtitle text calculation
   const currentSubtitleText = React.useMemo(() => {
@@ -293,17 +376,20 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
     
     // Check subtitles cues first
     const activeCue = subtitles.find((s) => t >= s.startTime && t <= s.endTime);
-    if (activeCue) return activeCue.text;
+    if (activeCue) {
+      return getCaptionChunk(activeCue.text, activeCue.startTime, activeCue.endTime, t);
+    }
 
     // Fallback to transcript segments
     const activeSeg = transcriptSegments.find((seg) => t >= seg.startTime && t <= seg.endTime);
-    if (activeSeg) return activeSeg.text;
+    if (activeSeg) {
+      return getCaptionChunk(activeSeg.text, activeSeg.startTime, activeSeg.endTime, t);
+    }
 
     return null;
   }, [showSubtitlesOverlay, internalTime, subtitles, transcriptSegments]);
 
   const effectiveDuration = mediaDuration || duration || 100;
-  const progressRatio = effectiveDuration > 0 ? internalTime / effectiveDuration : 0;
 
   return (
     <div
@@ -313,8 +399,33 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
       }`}
       aria-label="Video Workspace Player"
     >
-      {/* Video / Audio Canvas */}
-      {mediaType === 'video' ? (
+      {/* Media Canvas Area */}
+      {isYouTube ? (
+        /* YouTube Dedicated Embed Player */
+        <YouTubePlayer
+          videoId={activeYtVideoId}
+          originalUrl={originalUrl || mediaUrl}
+          duration={effectiveDuration}
+          showSubtitlesOverlay={showSubtitlesOverlay}
+          currentSubtitleText={currentSubtitleText}
+          aspectRatio={aspectRatio}
+          onTimeUpdate={(t) => {
+            setInternalTime(t);
+            onTimeUpdateCallbackRef.current?.(t);
+          }}
+          onDurationLoaded={(d) => {
+            setMediaDuration(d);
+            onDurationLoadedRef.current?.(d);
+          }}
+          onStateChange={(playing) => {
+            setIsPlaying(playing);
+          }}
+          playerRefCallback={(ctrl) => {
+            ytControllerRef.current = ctrl;
+          }}
+        />
+      ) : mediaType === 'video' ? (
+        /* Uploaded Local Video Canvas */
         <div 
           className={`relative w-full flex items-center justify-center bg-[#000000] overflow-hidden ${
             isFullscreen ? 'flex-1 h-full' : 'min-h-[260px] sm:min-h-[380px] max-h-[580px]'
@@ -331,10 +442,10 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
 
           {/* Subtitle Caption Overlay on Video */}
           {showSubtitlesOverlay && currentSubtitleText && (
-            <div className="absolute bottom-6 inset-x-4 flex justify-center pointer-events-none z-20">
-              <span className="px-4 py-1.5 bg-black/80 backdrop-blur-xs text-white text-xs sm:text-sm md:text-base font-medium rounded text-center max-w-[90%] shadow-lg leading-relaxed border border-white/10 animate-fade-in">
+            <div className="absolute bottom-4 sm:bottom-6 inset-x-0 flex justify-center pointer-events-none z-20 px-4">
+              <div className="w-fit max-w-[70%] px-3 py-1 sm:px-3.5 sm:py-1.5 bg-black/75 backdrop-blur-xs text-white text-xs sm:text-sm font-medium rounded-md text-center shadow-md leading-snug border border-white/10 line-clamp-2 select-none animate-fade-in">
                 {currentSubtitleText}
-              </span>
+              </div>
             </div>
           )}
 
@@ -368,7 +479,7 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
           )}
         </div>
       ) : (
-        /* Audio Stream Canvas */
+        /* Uploaded Audio Stream Canvas */
         <div className="w-full py-12 px-6 sm:px-12 flex flex-col items-center justify-center bg-[#111111] text-white">
           <audio ref={audioRef} src={mediaUrl} />
           <div className="w-16 h-16 rounded-full bg-[#1A1A1A] border border-[#333333] flex items-center justify-center text-white mb-3">
@@ -383,8 +494,8 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
         </div>
       )}
 
-      {/* Error State Banner */}
-      {loadError && (
+      {/* Error State Banner for Local Uploads */}
+      {!isYouTube && loadError && (
         <div className="p-4 bg-[#1A1111] border-t border-[#4A2222] text-[#FFA8A8] text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-[#FF8080]" />

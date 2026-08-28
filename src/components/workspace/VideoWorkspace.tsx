@@ -11,6 +11,7 @@ import { Button } from '../common/Button';
 import { getProjectById, deleteProject, updateProject } from '../../services/projectStorage';
 import { getMedia } from '../../services/mediaStorage';
 import { Project } from '../../types';
+import { isYouTubeUrl } from '../../utils/youtubeUtils';
 
 interface VideoWorkspaceProps {
   projectId: string;
@@ -64,7 +65,16 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
 
     setProject(proj);
 
-    // If project has remote mediaUrl, use that
+    // Detect YouTube project
+    const isYt = proj.sourceType === 'youtube' || Boolean(proj.youtubeVideoId) || isYouTubeUrl(proj.originalUrl || '') || isYouTubeUrl(proj.mediaUrl || '');
+    if (isYt) {
+      cleanupBlobUrl();
+      setMediaBlobUrl(null);
+      setIsLoadingMedia(false);
+      return;
+    }
+
+    // If project has remote mediaUrl for direct file download, use that
     if (proj.mediaUrl) {
       cleanupBlobUrl();
       setMediaBlobUrl(proj.mediaUrl);
@@ -118,31 +128,40 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     }
   };
 
-  const handleUpdateProject = (updates: Partial<Project>) => {
+  const handleUpdateProject = useCallback((updates: Partial<Project>) => {
     if (project) {
       const updated = updateProject(project.id, updates);
       if (updated) {
         setProject(updated);
       }
     }
-  };
+  }, [project]);
 
   const handleMediaReplaced = (updatedProj: Project) => {
     setProject(updatedProj);
     loadProjectAndMedia();
   };
 
-  const handleDurationLoaded = (duration: number, width?: number, height?: number) => {
-    if (project && (!project.duration || project.duration !== duration || (width && width !== project.width))) {
-      const updates: Partial<Project> = { duration };
-      if (width) updates.width = width;
-      if (height) updates.height = height;
-      const updated = updateProject(project.id, updates);
-      if (updated) {
-        setProject(updated);
+  const handleDurationLoaded = useCallback((duration: number, width?: number, height?: number) => {
+    if (project) {
+      const currentDur = project.duration || 0;
+      const durChanged = !project.duration || Math.abs(currentDur - duration) > 1.0;
+      const widthChanged = Boolean(width && width !== project.width);
+      const heightChanged = Boolean(height && height !== project.height);
+
+      if (durChanged || widthChanged || heightChanged) {
+        const updates: Partial<Project> = {};
+        if (durChanged) updates.duration = Math.round(duration);
+        if (widthChanged) updates.width = width;
+        if (heightChanged) updates.height = height;
+
+        const updated = updateProject(project.id, updates);
+        if (updated) {
+          setProject(updated);
+        }
       }
     }
-  };
+  }, [project]);
 
   const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
@@ -150,6 +169,23 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
       playerControllerRef.current.seek(time);
       playerControllerRef.current.play();
     }
+  }, []);
+
+  const handleTimeUpdateCallback = useCallback((t: number) => {
+    setCurrentTime(t);
+  }, []);
+
+  const handlePlayerRefCallback = useCallback((ctrl: any) => {
+    playerControllerRef.current = ctrl;
+  }, []);
+
+  const handleSearchMatchesChanged = useCallback((matches: number[]) => {
+    setSearchMatchTimestamps((prev) => {
+      if (prev.length === matches.length && prev.every((val, idx) => val === matches[idx])) {
+        return prev;
+      }
+      return matches;
+    });
   }, []);
 
   // Not Found State
@@ -191,6 +227,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
     );
   }
 
+  const isYtProject = project.sourceType === 'youtube' || Boolean(project.youtubeVideoId) || isYouTubeUrl(project.originalUrl || '') || isYouTubeUrl(project.mediaUrl || '');
+
   return (
     <div className="min-h-screen bg-[#FAFAFA] flex flex-col">
       {/* 1. Compact Application Header */}
@@ -209,9 +247,12 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Left Column: Player + Controls + Media Specs (7 cols on lg, 7 cols on xl) */}
           <section className="lg:col-span-7 xl:col-span-7 space-y-4">
-            {mediaBlobUrl ? (
+            {(isYtProject || mediaBlobUrl) ? (
               <VideoPlayerDeck
-                mediaUrl={mediaBlobUrl}
+                sourceType={isYtProject ? 'youtube' : 'upload'}
+                youtubeVideoId={project.youtubeVideoId}
+                originalUrl={project.originalUrl || (isYtProject ? project.mediaUrl : undefined)}
+                mediaUrl={isYtProject ? undefined : mediaBlobUrl || undefined}
                 mediaType={project.mediaType}
                 fileName={project.fileName}
                 aspectRatio={project.aspectRatio}
@@ -224,10 +265,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 onDurationLoaded={handleDurationLoaded}
                 onOpenReplaceMedia={() => setIsReplaceOpen(true)}
                 onSeek={handleSeek}
-                onTimeUpdateCallback={(t) => setCurrentTime(t)}
-                playerRefCallback={(ctrl) => {
-                  playerControllerRef.current = ctrl;
-                }}
+                onTimeUpdateCallback={handleTimeUpdateCallback}
+                playerRefCallback={handlePlayerRefCallback}
               />
             ) : (
               /* Missing Media Fallback Area */
@@ -265,7 +304,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
               currentTime={currentTime}
               onSeek={handleSeek}
               onUpdateProject={handleUpdateProject}
-              onSearchMatchesChanged={(matches) => setSearchMatchTimestamps(matches)}
+              onSearchMatchesChanged={handleSearchMatchesChanged}
             />
           </section>
         </div>
