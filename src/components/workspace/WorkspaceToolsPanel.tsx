@@ -32,6 +32,8 @@ interface WorkspaceToolsPanelProps {
   onSeek: (time: number) => void;
   onUpdateProject: (updates: Partial<Project>) => void;
   onSearchMatchesChanged?: (timestamps: number[]) => void;
+  activeCaptionLanguage?: string;
+  setActiveCaptionLanguage?: (lang: string) => void;
 }
 
 type TabType = 'transcript' | 'search' | 'subtitles' | 'translate' | 'ai' | 'summary';
@@ -50,6 +52,8 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   onSeek,
   onUpdateProject,
   onSearchMatchesChanged,
+  activeCaptionLanguage = 'source',
+  setActiveCaptionLanguage,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
@@ -66,7 +70,27 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   const [targetLang, setTargetLang] = useState('Spanish');
   const [translatedSegments, setTranslatedSegments] = useState<TranscriptSegment[] | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState<string | null>(null);
   const [showTranslatedView, setShowTranslatedView] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
+
+  // Synchronize translatedSegments state with selected caption language or project translations
+  useEffect(() => {
+    if (activeCaptionLanguage && activeCaptionLanguage !== 'source') {
+      const trans = project.translations?.[activeCaptionLanguage];
+      if (trans && Array.isArray(trans)) {
+        setTranslatedSegments(trans);
+        setTargetLang(activeCaptionLanguage);
+        setShowTranslatedView(true);
+      } else {
+        setTranslatedSegments(null);
+        setShowTranslatedView(false);
+      }
+    } else {
+      setTranslatedSegments(null);
+      setShowTranslatedView(false);
+    }
+  }, [activeCaptionLanguage, project.translations]);
 
   // AI Q&A State
   const [aiInput, setAiInput] = useState('');
@@ -80,32 +104,98 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   ]);
   const [isAiGenerating, setIsAiGenerating] = useState(false);
 
+  // Summary State
+  const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'detailed'>('medium');
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
 
-  const segments = project.transcript || [];
+  // Validate, clean, and sort transcript segments
+  const segments = React.useMemo(() => {
+    const raw = project.transcript || [];
+    return [...raw]
+      .filter((seg) => seg && typeof seg.id === 'string')
+      .map((seg) => {
+        const startTime = typeof seg.startTime === 'number' ? seg.startTime : parseFloat(seg.startTime as any) || 0;
+        const endTime = typeof seg.endTime === 'number' ? seg.endTime : parseFloat(seg.endTime as any) || (startTime + 2);
+        return {
+          ...seg,
+          startTime: Math.max(0, startTime),
+          endTime: Math.max(startTime + 0.01, endTime),
+        };
+      })
+      .sort((a, b) => a.startTime - b.startTime);
+  }, [project.transcript]);
+
   const speakers = project.speakers || [];
   const subtitles = project.subtitles || [];
   const summary = project.summary;
+
+  const activeSubtitlesList = React.useMemo(() => {
+    if (activeCaptionLanguage === 'source') {
+      return project.subtitles || [];
+    }
+    const trans = project.translations?.[activeCaptionLanguage];
+    if (trans && Array.isArray(trans)) {
+      return trans.map((seg, idx) => ({
+        id: seg.id || `sub_${idx}`,
+        index: idx + 1,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text,
+      }));
+    }
+    return project.subtitles || [];
+  }, [project.subtitles, project.translations, activeCaptionLanguage]);
 
   const speakerMap = React.useMemo(() => {
     return new Map(speakers.map((s) => [s.id, s.name]));
   }, [speakers]);
 
   // Current active transcript segment based on currentTime
-  const activeSegmentIndex = segments.findIndex(
-    (seg) => currentTime >= seg.startTime && currentTime <= seg.endTime
-  );
+  const activeSegmentIndex = React.useMemo(() => {
+    return segments.findIndex(
+      (seg) => currentTime >= seg.startTime && currentTime <= seg.endTime
+    );
+  }, [segments, currentTime]);
 
-  // Auto-scroll active segment into view
+  const lastActiveIndexRef = useRef<number>(-1);
+
+  // Auto-scroll active segment into view ONLY when the active index changes to prevent jittery scrolling
   useEffect(() => {
-    if (autoScrollTranscript && activeTab === 'transcript' && activeSegmentRef.current && transcriptScrollRef.current) {
-      activeSegmentRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
+    if (autoScrollTranscript && activeTab === 'transcript' && activeSegmentRef.current) {
+      if (activeSegmentIndex !== lastActiveIndexRef.current) {
+        lastActiveIndexRef.current = activeSegmentIndex;
+        if (activeSegmentIndex !== -1) {
+          activeSegmentRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }
+      }
     }
-  }, [currentTime, autoScrollTranscript, activeTab]);
+  }, [activeSegmentIndex, autoScrollTranscript, activeTab]);
+
+  // Reset states when project changes to prevent state leakage & stale requests
+  useEffect(() => {
+    setAiMessages([
+      {
+        id: 'init_1',
+        sender: 'ai',
+        text: `Hello! I'm your VEYRA Video Intelligence Assistant for "${project.name}". Ask me anything about this video or click any suggested question below.`,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setTranslatedSegments(null);
+    setShowTranslatedView(false);
+    setTranslationError(null);
+    setSummaryError(null);
+    setIsAiGenerating(false);
+    setIsTranslating(false);
+    setIsGeneratingSummary(false);
+  }, [project.name, project.mediaUrl]);
 
   // Search matches
   const searchResults = React.useMemo(() => {
@@ -152,17 +242,37 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     setRenamingSpeaker(null);
   };
 
+  // Centralized Transcript Edit Sync Helper
+  const handleTranscriptChange = (newTranscript: TranscriptSegment[]) => {
+    // Synchronize subtitle cues
+    const newSubtitles = newTranscript.map((seg, idx) => ({
+      id: `sub_${idx + 1}`,
+      index: idx + 1,
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      text: seg.text,
+    }));
+
+    // Save and clear stale translations
+    onUpdateProject({
+      transcript: newTranscript,
+      subtitles: newSubtitles,
+      translations: {}, // Invalidate all translations if transcript is edited
+    });
+
+    if (setActiveCaptionLanguage) {
+      setActiveCaptionLanguage('source');
+    }
+    setTranslatedSegments(null);
+    setShowTranslatedView(false);
+  };
+
   // Handle Transcript Segment Text Edit Save
   const handleSaveSegmentEdit = (segmentId: string) => {
     const updated = segments.map((seg) =>
       seg.id === segmentId ? { ...seg, text: editingSegmentText.trim() } : seg
     );
-    // Also sync subtitle cues
-    const updatedSubtitles = subtitles.map((sub, idx) =>
-      idx < updated.length ? { ...sub, text: updated[idx].text } : sub
-    );
-
-    onUpdateProject({ transcript: updated, subtitles: updatedSubtitles });
+    handleTranscriptChange(updated);
     setEditingSegmentId(null);
   };
 
@@ -191,7 +301,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     };
 
     const newSegments = [...segments.slice(0, index), seg1, seg2, ...segments.slice(index + 1)];
-    onUpdateProject({ transcript: newSegments });
+    handleTranscriptChange(newSegments);
   };
 
   // Merge Segment with next
@@ -209,14 +319,14 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     };
 
     const newSegments = [...segments.slice(0, index), merged, ...segments.slice(index + 2)];
-    onUpdateProject({ transcript: newSegments });
+    handleTranscriptChange(newSegments);
   };
 
   // Delete Segment
   const handleDeleteSegment = (index: number) => {
     if (segments.length <= 1) return;
     const newSegments = segments.filter((_, idx) => idx !== index);
-    onUpdateProject({ transcript: newSegments });
+    handleTranscriptChange(newSegments);
   };
 
   // Add Segment After
@@ -235,44 +345,86 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     };
 
     const newSegments = [...segments.slice(0, index + 1), newSeg, ...segments.slice(index + 1)];
-    onUpdateProject({ transcript: newSegments });
+    handleTranscriptChange(newSegments);
   };
 
-  // Translation Handler
+  // Translation Handler - Now uses safe multi-batch chunking to mitigate API quota errors
   const handleTranslate = async () => {
     if (segments.length === 0) return;
     setIsTranslating(true);
+    setTranslationError(null);
+    setTranslationProgress('Starting translation...');
 
     try {
-      const response = await fetch('/api/ai/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          segments,
-          targetLanguage: targetLang,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Translation request failed');
+      const batchSize = 25; // Safe batch size
+      const batches: TranscriptSegment[][] = [];
+      for (let i = 0; i < segments.length; i += batchSize) {
+        batches.push(segments.slice(i, i + batchSize));
       }
 
-      const data = await response.json();
-      if (data.translatedSegments && Array.isArray(data.translatedSegments)) {
-        setTranslatedSegments(data.translatedSegments);
+      const allTranslated: TranscriptSegment[] = [];
+      for (let i = 0; i < batches.length; i++) {
+        setTranslationProgress(`Translating batch ${i + 1} of ${batches.length}...`);
+        
+        const batch = batches[i];
+        const response = await fetch('/api/ai/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            segments: batch,
+            targetLanguage: targetLang,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Translation batch failed (HTTP ${response.status}: ${response.statusText})`);
+        }
+
+        const data = await response.json();
+        if (data.translatedSegments && Array.isArray(data.translatedSegments)) {
+          // Align translated output exactly with original times and speaker IDs
+          const alignedBatch = data.translatedSegments.map((tSeg: any, idx: number) => {
+            const original = batch[idx];
+            return {
+              id: original?.id || tSeg.id || `seg_t_${allTranslated.length + idx}`,
+              speakerId: original?.speakerId || tSeg.speakerId || 'spk_1',
+              startTime: original?.startTime !== undefined ? original.startTime : (tSeg.startTime || 0),
+              endTime: original?.endTime !== undefined ? original.endTime : (tSeg.endTime || 0),
+              text: tSeg.text || '',
+            };
+          });
+          allTranslated.push(...alignedBatch);
+        } else {
+          throw new Error('Received malformed translated data from server.');
+        }
+      }
+
+      if (allTranslated.length > 0) {
+        setTranslatedSegments(allTranslated);
         setShowTranslatedView(true);
+
+        const updatedTranslations = {
+          ...(project.translations || {}),
+          [targetLang]: allTranslated,
+        };
+
+        onUpdateProject({
+          translations: updatedTranslations,
+        });
+
+        if (setActiveCaptionLanguage) {
+          setActiveCaptionLanguage(targetLang);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Translation error:', err);
-      // Fallback display if error
-      const fallback = segments.map((seg) => ({
-        ...seg,
-        text: `[${targetLang}] ${seg.text}`,
-      }));
-      setTranslatedSegments(fallback);
-      setShowTranslatedView(true);
+      setTranslationError(err?.message || 'Translation failed. Please try again.');
+      setTranslatedSegments(null);
+      setShowTranslatedView(false);
     } finally {
       setIsTranslating(false);
+      setTranslationProgress(null);
     }
   };
 
@@ -304,7 +456,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
           prompt: query,
           transcriptText: fullTranscript,
           projectName: project.name,
-          conversationHistory: aiMessages.slice(-6),
+          conversationHistory: aiMessages.slice(-6).filter(m => m.id !== 'init_1'),
         }),
       });
 
@@ -313,7 +465,8 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         const data = await response.json();
         replyText = data.answer || 'No answer generated.';
       } else {
-        replyText = `Based on "${project.name}" transcript:\n${segments[0]?.text || 'No content found.'}`;
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `AI request failed with HTTP status ${response.status}`);
       }
 
       const aiMsg: AIChatMessage = {
@@ -324,17 +477,49 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
       };
 
       setAiMessages((prev) => [...prev, aiMsg]);
-    } catch (err) {
+    } catch (err: any) {
       console.error('AI Q&A error:', err);
       const aiMsg: AIChatMessage = {
         id: `msg_ai_${Date.now()}`,
         sender: 'ai',
-        text: 'Sorry, I encountered an issue analyzing the video. Please try again.',
+        text: `Error: ${err?.message || 'Sorry, I encountered an issue analyzing the video. Please verify your GEMINI_API_KEY config.'}`,
         createdAt: new Date().toISOString(),
       };
       setAiMessages((prev) => [...prev, aiMsg]);
     } finally {
       setIsAiGenerating(false);
+    }
+  };
+
+  // Real AI Summary generation handler
+  const handleGenerateSummary = async (selectedLength: 'short' | 'medium' | 'detailed') => {
+    if (segments.length === 0) return;
+    setIsGeneratingSummary(true);
+    setSummaryError(null);
+
+    try {
+      const response = await fetch('/api/ai/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          segments,
+          length: selectedLength,
+          projectName: project.name,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to generate summary (HTTP ${response.status})`);
+      }
+
+      const data = await response.json();
+      onUpdateProject({ summary: data });
+    } catch (err: any) {
+      console.error('Summary generation error:', err);
+      setSummaryError(err?.message || 'Failed to generate summary. Please check your API key configuration and try again.');
+    } finally {
+      setIsGeneratingSummary(false);
     }
   };
 
@@ -728,16 +913,34 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
                   Subtitles &amp; Captions
                 </h3>
-                <p className="text-xs text-[#666666] mt-0.5">
-                  {subtitles.length} synchronized subtitle cues
-                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[11px] text-[#666666] font-mono-time">
+                    {activeSubtitlesList.length} synchronized subtitle cues
+                  </span>
+                  {project.translations && Object.keys(project.translations).length > 0 && (
+                    <>
+                      <span className="text-[#D4D4D4] text-xs">|</span>
+                      <select
+                        value={activeCaptionLanguage}
+                        onChange={(e) => setActiveCaptionLanguage?.(e.target.value)}
+                        className="px-1.5 py-0.5 bg-[#FAFAFA] border border-[#E5E5E5] rounded text-[10px] text-[#111111] focus:outline-none focus:border-[#111111] cursor-pointer"
+                      >
+                        <option value="source">Original (English)</option>
+                        {Object.keys(project.translations).map((lang) => (
+                          <option key={lang} value={lang}>{lang}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    const srt = generateSRT(subtitles, speakers);
-                    triggerFileDownload(srt, `${project.name.replace(/\s+/g, '_')}.srt`, 'text/plain');
+                    const srt = generateSRT(activeSubtitlesList, speakers);
+                    const suffix = activeCaptionLanguage !== 'source' ? `_${activeCaptionLanguage.toLowerCase()}` : '';
+                    triggerFileDownload(srt, `${project.name.replace(/\s+/g, '_')}${suffix}.srt`, 'text/plain');
                   }}
                   className="px-3 py-1.5 bg-[#111111] hover:bg-black text-white rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
@@ -747,8 +950,9 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
 
                 <button
                   onClick={() => {
-                    const vtt = generateVTT(subtitles, speakers);
-                    triggerFileDownload(vtt, `${project.name.replace(/\s+/g, '_')}.vtt`, 'text/vtt');
+                    const vtt = generateVTT(activeSubtitlesList, speakers);
+                    const suffix = activeCaptionLanguage !== 'source' ? `_${activeCaptionLanguage.toLowerCase()}` : '';
+                    triggerFileDownload(vtt, `${project.name.replace(/\s+/g, '_')}${suffix}.vtt`, 'text/vtt');
                   }}
                   className="px-3 py-1.5 bg-white hover:bg-[#F5F5F5] border border-[#D4D4D4] hover:border-[#111111] text-[#111111] rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
@@ -760,7 +964,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
 
             {/* Cues List */}
             <div className="divide-y divide-[#F5F5F5] border border-[#F0F0F0] rounded-lg overflow-hidden">
-              {subtitles.map((cue, idx) => (
+              {activeSubtitlesList.map((cue, idx) => (
                 <div
                   key={cue.id || idx}
                   onClick={() => onSeek(cue.startTime)}
@@ -820,9 +1024,15 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                 className="w-full sm:w-auto px-5 py-2 bg-[#111111] hover:bg-black disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Globe className="w-3.5 h-3.5" />
-                <span>{isTranslating ? 'Translating...' : `Translate to ${targetLang}`}</span>
+                <span>{isTranslating ? (translationProgress || 'Translating...') : `Translate to ${targetLang}`}</span>
               </button>
             </div>
+
+            {translationError && (
+              <div className="p-3.5 bg-[#FFF5F5] border border-[#FEB2B2] text-[#C53030] rounded-lg text-xs leading-relaxed">
+                <span className="font-bold">Error:</span> {translationError}
+              </div>
+            )}
 
             {/* Translated Segments Display */}
             {translatedSegments && (
@@ -833,7 +1043,13 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      const srt = generateSRT(translatedSegments);
+                      const srt = generateSRT(translatedSegments.map((seg, idx) => ({
+                        id: seg.id || `sub_${idx}`,
+                        index: idx + 1,
+                        startTime: seg.startTime,
+                        endTime: seg.endTime,
+                        text: seg.text,
+                      })), project.speakers || []);
                       triggerFileDownload(srt, `${project.name.replace(/\s+/g, '_')}_${targetLang.toLowerCase()}.srt`, 'text/plain');
                     }}
                     className="text-xs font-semibold text-[#111111] hover:underline flex items-center gap-1 cursor-pointer"
@@ -957,7 +1173,50 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         {/* ============================================================ */}
         {activeTab === 'summary' && (
           <div className="p-4 sm:p-6 space-y-6">
-            {summary ? (
+            {/* Length Selector + Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-[#111111]">Summary Length:</span>
+                <div className="flex gap-1 bg-[#F0F0F0] p-0.5 rounded">
+                  {(['short', 'medium', 'detailed'] as const).map((l) => (
+                    <button
+                      key={l}
+                      disabled={isGeneratingSummary}
+                      onClick={() => setSummaryLength(l)}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded transition-colors cursor-pointer ${
+                        summaryLength === l
+                          ? 'bg-[#111111] text-white'
+                          : 'text-[#666666] hover:text-[#111111]'
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                disabled={isGeneratingSummary || segments.length === 0}
+                onClick={() => handleGenerateSummary(summaryLength)}
+                className="w-full sm:w-auto px-4 py-1.5 bg-[#111111] hover:bg-black disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isGeneratingSummary ? 'Generating...' : summary ? 'Regenerate' : 'Generate'}</span>
+              </button>
+            </div>
+
+            {summaryError && (
+              <div className="p-3.5 bg-[#FFF5F5] border border-[#FEB2B2] text-[#C53030] rounded-lg text-xs leading-relaxed">
+                <span className="font-bold">Error:</span> {summaryError}
+              </div>
+            )}
+
+            {isGeneratingSummary ? (
+              <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                <span className="w-5 h-5 rounded-full border-2 border-[#111111] border-t-transparent animate-spin" />
+                <span className="text-xs text-[#666666] text-center">VEYRA AI is analyzing the transcript and synthesizing the summary...</span>
+              </div>
+            ) : summary ? (
               <>
                 {/* Executive Overview */}
                 <div className="space-y-2">
@@ -985,31 +1244,33 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                 </div>
 
                 {/* Video Chapters */}
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
-                    Video Chapters
-                  </h3>
-                  <div className="divide-y divide-[#F5F5F5] border border-[#E5E5E5] rounded-lg overflow-hidden">
-                    {summary.chapters.map((chapter, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => onSeek(chapter.startTime)}
-                        className="p-3.5 bg-white hover:bg-[#FAFAFA] transition-colors cursor-pointer space-y-1"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-[#111111]">{chapter.title}</span>
-                          <span className="px-2 py-0.5 bg-[#F0F0F0] rounded text-[11px] font-mono-time text-[#111111] flex items-center gap-1">
-                            <Play className="w-2.5 h-2.5 fill-current" />
-                            <span>{formatDuration(chapter.startTime)}</span>
-                          </span>
+                {summary.chapters && summary.chapters.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
+                      Video Chapters
+                    </h3>
+                    <div className="divide-y divide-[#F5F5F5] border border-[#E5E5E5] rounded-lg overflow-hidden">
+                      {summary.chapters.map((chapter, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => onSeek(chapter.startTime)}
+                          className="p-3.5 bg-white hover:bg-[#FAFAFA] transition-colors cursor-pointer space-y-1"
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-[#111111]">{chapter.title}</span>
+                            <span className="px-2 py-0.5 bg-[#F0F0F0] rounded text-[11px] font-mono-time text-[#111111] flex items-center gap-1">
+                              <Play className="w-2.5 h-2.5 fill-current" />
+                              <span>{formatDuration(chapter.startTime)}</span>
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#666666] leading-relaxed">
+                            {chapter.summary}
+                          </p>
                         </div>
-                        <p className="text-xs text-[#666666] leading-relaxed">
-                          {chapter.summary}
-                        </p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Action Items */}
                 {summary.actionItems && summary.actionItems.length > 0 && (
@@ -1029,8 +1290,9 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                 )}
               </>
             ) : (
-              <div className="text-center py-12 text-xs text-[#888888]">
-                Summary generation is ready.
+              <div className="text-center py-12 text-xs text-[#888888] space-y-2">
+                <p>No summary has been generated for this video yet.</p>
+                <p className="text-[11px] text-[#999999]">Choose a summary length above and click "Generate".</p>
               </div>
             )}
           </div>

@@ -8,6 +8,7 @@ import { VideoWorkspace } from './components/workspace/VideoWorkspace';
 import { GlobalSearchPage } from './components/search/GlobalSearchPage';
 import { StudyPage } from './components/study/StudyPage';
 import { SettingsPage } from './components/settings/SettingsPage';
+import { ToolsHubPage } from './components/tools/ToolsHubPage';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -59,6 +60,10 @@ export default function App() {
 
     if (currentPath === '/settings') {
       return <SettingsPage onNavigate={navigate} />;
+    }
+
+    if (currentPath === '/tools' || currentPath.startsWith('/tools')) {
+      return <ToolsHubPage onNavigate={navigate} />;
     }
 
     // Fallback 404

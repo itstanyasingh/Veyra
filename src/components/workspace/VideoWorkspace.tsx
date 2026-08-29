@@ -29,6 +29,33 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [showSubtitlesOverlay, setShowSubtitlesOverlay] = useState<boolean>(true);
   const [searchMatchTimestamps, setSearchMatchTimestamps] = useState<number[]>([]);
+  const [activeCaptionLanguage, setActiveCaptionLanguage] = useState<string>('source');
+
+  // Automatically reset active caption language back to 'source' if translations are invalidated/cleared
+  useEffect(() => {
+    if (project && (!project.translations || Object.keys(project.translations).length === 0)) {
+      setActiveCaptionLanguage('source');
+    }
+  }, [project?.translations]);
+
+  // Map translated segments to subtitle cues if a translation is active
+  const activeSubtitles = React.useMemo(() => {
+    if (!project) return [];
+    if (activeCaptionLanguage === 'source') {
+      return project.subtitles || [];
+    }
+    const trans = project.translations?.[activeCaptionLanguage];
+    if (trans && Array.isArray(trans)) {
+      return trans.map((seg, idx) => ({
+        id: seg.id || `sub_${idx}`,
+        index: idx + 1,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text,
+      }));
+    }
+    return project.subtitles || [];
+  }, [project?.subtitles, project?.translations, activeCaptionLanguage]);
 
   // Modals
   const [isRenameOpen, setIsRenameOpen] = useState<boolean>(false);
@@ -240,6 +267,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         onRename={handleRename}
         onOpenReplaceMedia={() => setIsReplaceOpen(true)}
         onOpenDeleteConfirm={() => setIsDeleteOpen(true)}
+        activeCaptionLanguage={activeCaptionLanguage}
+        setActiveCaptionLanguage={setActiveCaptionLanguage}
       />
 
       {/* 2. Main Workspace Layout */}
@@ -260,7 +289,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
                 duration={project.duration || 60}
                 showSubtitlesOverlay={showSubtitlesOverlay}
                 transcriptSegments={project.transcript}
-                subtitles={project.subtitles}
+                subtitles={activeSubtitles}
                 searchMatchTimestamps={searchMatchTimestamps}
                 onDurationLoaded={handleDurationLoaded}
                 onOpenReplaceMedia={() => setIsReplaceOpen(true)}
@@ -305,6 +334,8 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
               onSeek={handleSeek}
               onUpdateProject={handleUpdateProject}
               onSearchMatchesChanged={handleSearchMatchesChanged}
+              activeCaptionLanguage={activeCaptionLanguage}
+              setActiveCaptionLanguage={setActiveCaptionLanguage}
             />
           </section>
         </div>

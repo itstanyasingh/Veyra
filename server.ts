@@ -3,6 +3,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { spawnSync } from 'child_process';
+import fs from 'fs';
 import { isYouTubeUrl, extractYouTubeVideoId, normalizeYouTubeUrl } from './server/youtube';
 
 dotenv.config();
@@ -69,6 +71,82 @@ function getGeminiClient(): GoogleGenAI | null {
       },
     },
   });
+}
+
+async function generateContentWithRetry(
+  ai: GoogleGenAI,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  maxRetries = 2
+): Promise<any> {
+  const primaryModel = params.model;
+  // Determine appropriate fallback based on primary model or task
+  let fallbackModel = 'gemini-3.1-flash-lite';
+  if (primaryModel.includes('transcribe')) {
+    fallbackModel = 'gemini-3.7-flash';
+  } else if (primaryModel.includes('3.1-flash-lite')) {
+    fallbackModel = 'gemini-3.7-flash';
+  } else if (primaryModel.includes('3.7')) {
+    fallbackModel = 'gemini-3.1-flash-lite';
+  }
+
+  const modelsToTry = [primaryModel, fallbackModel];
+  let lastError: any = null;
+
+  for (const currentModel of modelsToTry) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      try {
+        console.log(`[Veyra AI] Attempting generateContent using model: ${currentModel} (try ${attempt + 1}/${maxRetries})...`);
+        
+        // Timeout protection wrapper (12 seconds)
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 12000)
+        );
+
+        const apiPromise = ai.models.generateContent({
+          model: currentModel,
+          contents: params.contents,
+          config: params.config,
+        });
+
+        const response = await Promise.race([apiPromise, timeoutPromise]);
+        return response;
+      } catch (err: any) {
+        attempt++;
+        lastError = err;
+        const errMsg = err?.message || String(err);
+        console.error(`[Veyra AI] Model ${currentModel} attempt ${attempt} failed: ${errMsg}`);
+        
+        // Check if the error is transient
+        const isTransient = 
+          errMsg.includes('503') || 
+          errMsg.includes('500') || 
+          errMsg.includes('429') || 
+          errMsg.includes('TIMEOUT_EXCEEDED') ||
+          errMsg.toLowerCase().includes('demand') || 
+          errMsg.toLowerCase().includes('limit') || 
+          errMsg.toLowerCase().includes('unavailable') ||
+          errMsg.toLowerCase().includes('overloaded');
+        
+        if (!isTransient && attempt === 1) {
+          // If it's a structural 400 Bad Request, try fallback immediately without retrying
+          break;
+        }
+
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // 2s, 4s...
+          console.log(`[Veyra AI] Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('GenerateContent failed after all attempts and fallbacks.');
 }
 
 async function startServer() {
@@ -158,8 +236,8 @@ Output strictly valid JSON with this exact schema:
 
       contents.push(promptText);
 
-      // Call Gemini 3.7 Flash for multimodal audio processing & structured intelligence
-      const response = await ai.models.generateContent({
+      // Call Gemini 3.7 Flash (or fallback) for multimodal audio processing & structured intelligence
+      const response = await generateContentWithRetry(ai, {
         model: 'gemini-3.7-flash',
         contents: contents as any,
         config: {
@@ -169,27 +247,94 @@ Output strictly valid JSON with this exact schema:
       });
 
       const rawText = response.text || '{}';
-      const parsedData = JSON.parse(rawText);
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(cleanJson);
+      } catch {
+        console.error('Failed to parse Gemini JSON response:', rawText);
+        return res.status(500).json({ error: 'Failed to parse generated transcription data.' });
+      }
 
-      // Generate matching subtitle cues
-      const subtitles = (parsedData.transcript || []).map((seg: any, idx: number) => ({
+      // Validate and repair speakers list
+      let speakersList = Array.isArray(parsedData.speakers) ? parsedData.speakers : [];
+      if (speakersList.length === 0) {
+        speakersList = [{ id: 'spk_1', name: 'Speaker 1' }];
+      }
+
+      // Validate and repair transcript segments
+      let rawSegments = Array.isArray(parsedData.transcript) 
+        ? parsedData.transcript 
+        : (Array.isArray(parsedData.segments) ? parsedData.segments : []);
+
+      const speakerMap = new Map<string, string>();
+      speakersList.forEach((s: any) => {
+        if (s && s.id) speakerMap.set(s.id, s.name || s.id);
+      });
+
+      let lastEndTime = 0;
+      let transcript = rawSegments.map((seg: any, idx: number) => {
+        let startTime = parseTimestampToSeconds(seg.startTime !== undefined ? seg.startTime : seg.start);
+        let endTime = parseTimestampToSeconds(seg.endTime !== undefined ? seg.endTime : seg.end);
+
+        // Repair invalid start/end times
+        if (isNaN(startTime) || startTime < 0) {
+          startTime = lastEndTime;
+        }
+        if (isNaN(endTime) || endTime <= startTime) {
+          endTime = startTime + 4.0;
+        }
+
+        lastEndTime = endTime;
+
+        let speakerId = seg.speakerId || seg.speaker || 'spk_1';
+        if (!speakerMap.has(speakerId)) {
+          const matchedSpeaker = speakersList.find((s: any) => s.name === speakerId);
+          if (matchedSpeaker) {
+            speakerId = matchedSpeaker.id;
+          } else {
+            const numericId = `spk_${speakersList.length + 1}`;
+            speakersList.push({ id: numericId, name: speakerId });
+            speakerMap.set(numericId, speakerId);
+            speakerId = numericId;
+          }
+        }
+
+        return {
+          id: `seg_${idx + 1}`,
+          speakerId,
+          startTime,
+          endTime,
+          text: (seg.text || '').trim(),
+        };
+      });
+
+      // Ensure segments are sorted chronologically
+      transcript.sort((a, b) => a.startTime - b.startTime);
+
+      // Regenerate subtitle cues based on the sorted, repaired transcript
+      const subtitles = transcript.map((seg, idx) => ({
         id: `sub_${idx + 1}`,
         index: idx + 1,
-        startTime: Number(seg.startTime) || 0,
-        endTime: Number(seg.endTime) || (Number(seg.startTime) + 4),
-        text: seg.text || '',
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text,
       }));
 
+      const estimatedDuration = transcript.length > 0 ? Math.ceil(transcript[transcript.length - 1].endTime) : (duration || 60);
+
+      const summary = parsedData.summary || {
+        overview: `Automated transcription of: ${fileName}`,
+        keyPoints: ['Accurately transcribed spoken audio directly from media.'],
+        chapters: [{ title: 'Main Segment', startTime: 0, endTime: estimatedDuration, summary: 'Full discussion' }],
+        actionItems: ['Review transcript timecodes.'],
+      };
+
       return res.json({
-        speakers: parsedData.speakers || [{ id: 'spk_1', name: 'Speaker 1' }],
-        transcript: parsedData.transcript || [],
+        speakers: speakersList,
+        transcript,
         subtitles,
-        summary: parsedData.summary || {
-          overview: `Automated transcription of ${fileName}.`,
-          keyPoints: ['Accurately transcribed and indexed dialogue'],
-          chapters: [{ title: 'Main Discussion', startTime: 0, endTime: duration || 60, summary: 'Full recording' }],
-          actionItems: ['Review and verify transcript timecodes'],
-        },
+        summary,
       });
     } catch (err: any) {
       console.error('Transcription API error:', err);
@@ -228,68 +373,130 @@ Output strictly valid JSON with this exact schema:
 
       const host = parsedUrl.hostname.toLowerCase();
 
-      // Direct YouTube Video Input to Gemini API
+      // Direct YouTube Video Input Processing via Real Ingestion and Transcription Pipeline
       if (isYouTubeUrl(url)) {
-        const canonicalUrl = normalizeYouTubeUrl(url);
-        if (!canonicalUrl) {
+        const videoId = extractYouTubeVideoId(url);
+        if (!videoId) {
           return res.status(400).json({ error: 'Please enter a valid YouTube video URL.' });
         }
+        const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-        const transcriptionPrompt = `You are a professional transcription engine.
+        // 1. Fetch video metadata using YouTube oEmbed API (extremely fast & never blocked)
+        let videoTitle = projectName || 'YouTube Video';
+        try {
+          const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (oembedResponse.ok) {
+            const oembedData = await oembedResponse.json() as any;
+            if (oembedData && oembedData.title) {
+              videoTitle = oembedData.title;
+            }
+          }
+        } catch (oembedErr) {
+          console.warn('[Veyra AI] Failed to fetch oembed metadata:', oembedErr);
+        }
 
-Transcribe the entire provided YouTube video.
+        // 2. Download audio track using our multi-threaded Python downloader
+        const tempMp3Path = path.join('/tmp', `veyra_yt_${videoId}_${Date.now()}.mp3`);
+        console.log(`[Veyra AI] Downloading audio for YouTube video ${videoId} to ${tempMp3Path}...`);
+        
+        const downloadProc = spawnSync('python3', [
+          path.join(process.cwd(), 'server/bin/download_youtube.py'),
+          canonicalUrl,
+          tempMp3Path
+        ], {
+          timeout: 180000, // 3 minute total timeout
+          encoding: 'utf-8'
+        });
 
-Requirements:
+        if (downloadProc.status !== 0) {
+          console.error('[Veyra AI] YouTube audio download failed:', downloadProc.stderr || downloadProc.stdout);
+          const rawErr = downloadProc.stderr || downloadProc.stdout || '';
+          let userFriendlyError = 'Failed to download YouTube audio stream. The video might be private, age-restricted, or blocked by YouTube.';
+          if (rawErr.includes('Private video')) {
+            userFriendlyError = 'This YouTube video is private. Please provide a public YouTube video URL.';
+          } else if (rawErr.includes('Video unavailable')) {
+            userFriendlyError = 'This YouTube video is unavailable or deleted.';
+          } else if (rawErr.includes('Sign in to confirm you’re not a bot')) {
+            userFriendlyError = 'YouTube is currently blocking download requests from our cloud server. Please try uploading the media file directly.';
+          }
+          return res.status(400).json({ error: userFriendlyError });
+        }
 
-1. Transcribe the spoken audio accurately.
-2. Do not summarize.
-3. Do not omit spoken content.
-4. Preserve the original meaning and wording.
-5. Detect the primary spoken language automatically.
-6. Support multilingual speech.
-7. Include timestamps.
-8. Identify different speakers when reasonably possible.
-9. Do not invent speech that cannot be heard.
-10. If a portion of the audio is unclear, mark it as [inaudible] rather than hallucinating.
-11. Return structured transcript segments.
+        if (!fs.existsSync(tempMp3Path)) {
+          return res.status(400).json({
+            error: 'Failed to locate downloaded audio file on server.'
+          });
+        }
 
-Each segment must contain:
-- start timestamp
-- end timestamp
-- speaker
-- text
+        // 3. Read downloaded audio and convert to base64
+        const audioBuffer = fs.readFileSync(tempMp3Path);
+        const base64Audio = audioBuffer.toString('base64');
+        const fileSize = audioBuffer.byteLength;
 
-Return valid JSON matching this exact schema:
+        // Clean up the temporary MP3 file immediately
+        try {
+          fs.unlinkSync(tempMp3Path);
+        } catch (cleanupErr) {
+          console.error('[Veyra AI] Failed to delete temp audio file:', cleanupErr);
+        }
+
+        const transcriptionPrompt = `You are Veyra's professional speech-to-text, speaker diarization, and video intelligence engine.
+Analyze the provided audio recording of the YouTube video: "${videoTitle}" (approx duration: available in media stream).
+${contextHint ? `Context hint: ${contextHint}` : ''}
+
+CRITICAL REQUIREMENTS:
+1. Transcribe the spoken dialogue verbatim and accurately.
+2. Diarize distinct speakers (e.g., "Speaker 1", "Speaker 2", or actual names if stated in dialogue).
+3. Provide realistic start and end timestamps (in seconds) for each segment. Segment duration should normally be 4-15 seconds per segment.
+4. Output structured chapters with timestamps.
+5. Provide a clear executive overview summary, 3-6 key takeaways, and actionable follow-ups.
+
+Output strictly valid JSON with this exact schema:
 {
-  "title": "Title of the video or empty string if unavailable",
-  "language": "Primary language detected e.g. English",
-  "duration": "Duration in MM:SS or HH:MM:SS format or empty string",
-  "segments": [
+  "speakers": [
+    { "id": "spk_1", "name": "Speaker 1" },
+    { "id": "spk_2", "name": "Speaker 2" }
+  ],
+  "transcript": [
     {
-      "start": "00:00",
-      "end": "00:08",
-      "speaker": "Speaker 1",
-      "text": "Transcribed spoken content"
+      "id": "seg_1",
+      "speakerId": "spk_1",
+      "startTime": 0.0,
+      "endTime": 5.4,
+      "text": "Exact transcribed text."
     }
   ],
   "summary": {
-    "overview": "Overview summary",
-    "keyPoints": ["Key point 1", "Key point 2"],
-    "chapters": [
-      { "title": "Chapter Title", "start": "00:00", "end": "01:00", "summary": "Chapter description" }
+    "overview": "Comprehensive overview of the discussion.",
+    "keyPoints": [
+      "Key point 1",
+      "Key point 2"
     ],
-    "actionItems": ["Action item 1"]
+    "chapters": [
+      {
+        "title": "Chapter title",
+        "startTime": 0,
+        "endTime": 30,
+        "summary": "Short chapter description."
+      }
+    ],
+    "actionItems": [
+      "Action item 1",
+      "Action item 2"
+    ]
   }
 }`;
 
         try {
-          const aiResponse = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+          const aiResponse = await generateContentWithRetry(ai, {
+            model: 'gemini-3.7-flash',
             contents: [
               {
-                fileData: {
-                  fileUri: canonicalUrl,
-                  mimeType: 'video/mp4',
+                inlineData: {
+                  data: base64Audio,
+                  mimeType: 'audio/mp3',
                 },
               },
               transcriptionPrompt,
@@ -307,25 +514,52 @@ Return valid JSON matching this exact schema:
             parsedData = JSON.parse(cleanJson);
           } catch {
             console.error('Failed to parse Gemini JSON response:', rawText);
+            return res.status(500).json({ error: 'Failed to parse generated transcription data.' });
           }
 
-          const rawSegments = Array.isArray(parsedData.segments) ? parsedData.segments : [];
+          // Validate and repair speakers list
+          let speakersList = Array.isArray(parsedData.speakers) ? parsedData.speakers : [];
+          if (speakersList.length === 0) {
+            speakersList = [{ id: 'spk_1', name: 'Speaker 1' }];
+          }
 
-          // Process speakers & segments
+          // Validate and repair transcript segments
+          let rawSegments = Array.isArray(parsedData.transcript) 
+            ? parsedData.transcript 
+            : (Array.isArray(parsedData.segments) ? parsedData.segments : []);
+
           const speakerMap = new Map<string, string>();
-          const speakersList: { id: string; name: string }[] = [];
+          speakersList.forEach((s: any) => {
+            if (s && s.id) speakerMap.set(s.id, s.name || s.id);
+          });
 
-          const transcript = rawSegments.map((seg: any, idx: number) => {
-            const rawSpeakerName = (seg.speaker || 'Speaker 1').trim();
-            if (!speakerMap.has(rawSpeakerName)) {
-              const spkId = `spk_${speakerMap.size + 1}`;
-              speakerMap.set(rawSpeakerName, spkId);
-              speakersList.push({ id: spkId, name: rawSpeakerName });
+          let lastEndTime = 0;
+          let transcript = rawSegments.map((seg: any, idx: number) => {
+            let startTime = parseTimestampToSeconds(seg.startTime !== undefined ? seg.startTime : seg.start);
+            let endTime = parseTimestampToSeconds(seg.endTime !== undefined ? seg.endTime : seg.end);
+
+            // Repair invalid start/end times
+            if (isNaN(startTime) || startTime < 0) {
+              startTime = lastEndTime;
             }
-            const speakerId = speakerMap.get(rawSpeakerName)!;
+            if (isNaN(endTime) || endTime <= startTime) {
+              endTime = startTime + 4.0;
+            }
 
-            const startTime = parseTimestampToSeconds(seg.start);
-            const endTime = parseTimestampToSeconds(seg.end) || (startTime + 5);
+            lastEndTime = endTime;
+
+            let speakerId = seg.speakerId || seg.speaker || 'spk_1';
+            if (!speakerMap.has(speakerId)) {
+              const matchedSpeaker = speakersList.find((s: any) => s.name === speakerId);
+              if (matchedSpeaker) {
+                speakerId = matchedSpeaker.id;
+              } else {
+                const numericId = `spk_${speakersList.length + 1}`;
+                speakersList.push({ id: numericId, name: speakerId });
+                speakerMap.set(numericId, speakerId);
+                speakerId = numericId;
+              }
+            }
 
             return {
               id: `seg_${idx + 1}`,
@@ -336,10 +570,10 @@ Return valid JSON matching this exact schema:
             };
           });
 
-          if (speakersList.length === 0) {
-            speakersList.push({ id: 'spk_1', name: 'Speaker 1' });
-          }
+          // Ensure segments are sorted chronologically
+          transcript.sort((a, b) => a.startTime - b.startTime);
 
+          // Regenerate subtitle cues based on the sorted, repaired transcript
           const subtitles = transcript.map((seg, idx) => ({
             id: `sub_${idx + 1}`,
             index: idx + 1,
@@ -348,24 +582,20 @@ Return valid JSON matching this exact schema:
             text: seg.text,
           }));
 
-          const title = (parsedData.title && parsedData.title.trim()) ? parsedData.title.trim() : (projectName || 'YouTube Video');
-          const language = parsedData.language || 'English';
-          const durationSec = parseTimestampToSeconds(parsedData.duration) || 
-            (transcript.length > 0 ? transcript[transcript.length - 1].endTime : 120);
+          const estimatedDuration = transcript.length > 0 ? Math.ceil(transcript[transcript.length - 1].endTime) : 60;
 
           const summary = parsedData.summary || {
-            overview: `Automated transcription of YouTube video: ${title}`,
+            overview: `Automated transcription of YouTube video: ${videoTitle}`,
             keyPoints: ['Accurately transcribed spoken audio directly from video.'],
-            chapters: [{ title: 'Main Segment', startTime: 0, endTime: durationSec, summary: 'Full video discussion' }],
+            chapters: [{ title: 'Main Segment', startTime: 0, endTime: estimatedDuration, summary: 'Full video discussion' }],
             actionItems: ['Review transcript timecodes.'],
           };
 
           return res.json({
-            fileName: title,
+            fileName: videoTitle,
             mediaUrl: canonicalUrl,
-            duration: durationSec,
-            language,
-            fileSize: 0,
+            duration: estimatedDuration,
+            fileSize,
             speakers: speakersList,
             transcript,
             subtitles,
@@ -373,43 +603,8 @@ Return valid JSON matching this exact schema:
           });
         } catch (ytErr: any) {
           console.error('Gemini YouTube video error:', ytErr);
-          const errMsg = String(ytErr?.message || ytErr || '');
-
-          if (
-            errMsg.toLowerCase().includes('token') ||
-            errMsg.toLowerCase().includes('1048576') ||
-            errMsg.toLowerCase().includes('exceeds')
-          ) {
-            return res.status(400).json({
-              error: 'This YouTube video exceeds Gemini\'s maximum direct video length (~45 minutes). Please upload the audio/video file directly or try a shorter video.',
-            });
-          }
-
-          if (
-            errMsg.toLowerCase().includes('private') ||
-            errMsg.toLowerCase().includes('permission') ||
-            errMsg.toLowerCase().includes('unauthorized') ||
-            errMsg.toLowerCase().includes('login')
-          ) {
-            return res.status(400).json({
-              error: 'This video is private or restricted and cannot be processed. Please use a public YouTube video.',
-            });
-          }
-
-          if (
-            errMsg.toLowerCase().includes('not found') ||
-            errMsg.toLowerCase().includes('404') ||
-            errMsg.toLowerCase().includes('access') ||
-            errMsg.toLowerCase().includes('fetch') ||
-            errMsg.toLowerCase().includes('failed')
-          ) {
-            return res.status(400).json({
-              error: 'Gemini could not access this YouTube video. Make sure the video is public and try again.',
-            });
-          }
-
           return res.status(400).json({
-            error: ytErr?.message || "We couldn't process this video right now. Please try again.",
+            error: ytErr?.message || "We couldn't transcribe the YouTube video audio right now. Please try again.",
           });
         }
       }
@@ -505,7 +700,7 @@ Output strictly valid JSON with this exact schema:
 }
 `;
 
-      const aiResponse = await ai.models.generateContent({
+      const aiResponse = await generateContentWithRetry(ai, {
         model: 'gemini-3.7-flash',
         contents: [
           {
@@ -587,8 +782,8 @@ USER QUESTION:
 ${prompt}
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.1-flash-lite',
         contents: userContent,
         config: {
           systemInstruction,
@@ -600,6 +795,84 @@ ${prompt}
     } catch (err: any) {
       console.error('AI Ask API error:', err);
       return res.status(500).json({ error: err.message || 'Error executing AI query.' });
+    }
+  });
+
+  // Real AI Summarize endpoint
+  app.post('/api/ai/summarize', async (req, res) => {
+    try {
+      const { segments, length, projectName } = req.body;
+      const ai = getGeminiClient();
+
+      if (!ai) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      if (!segments || !Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: 'No transcript segments provided for summarization.' });
+      }
+
+      const lengthGuideline = length === 'short' 
+        ? 'Generate a very brief, high-level summary (1 short paragraph) and 3 short key points.'
+        : length === 'detailed'
+          ? 'Generate a comprehensive, highly detailed and exhaustive summary (3-4 large paragraphs) and 6-10 elaborate key takeaways.'
+          : 'Generate a moderate length summary (2 paragraphs) and 4-6 key takeaways.';
+
+      const formattedTranscript = segments
+        .map((s: any) => `[${s.startTime} - ${s.endTime}] ${s.speakerId || 'Speaker'}: ${s.text}`)
+        .join('\n');
+
+      const prompt = `You are Veyra's professional video intelligence and summarization engine.
+Analyze the following video transcript for "${projectName || 'the video'}".
+
+${lengthGuideline}
+
+CRITICAL REQUIREMENTS:
+1. Overview must be grounded entirely in the transcript.
+2. Chapters MUST use real start and end timestamps from the provided segments (do not invent timestamps outside the actual segments range).
+3. Identify actionable follow-ups or action items. If there are none, return empty array.
+
+Output strictly valid JSON with this exact schema:
+{
+  "overview": "Your summary overview here based on the requested length.",
+  "keyPoints": [
+    "Key takeaway point 1",
+    "Key takeaway point 2"
+  ],
+  "chapters": [
+    {
+      "title": "Chapter title",
+      "startTime": 0.0,
+      "endTime": 30.0,
+      "summary": "Short description of this chapter's topic."
+    }
+  ],
+  "actionItems": [
+    "Action item 1",
+    "Action item 2"
+  ]
+}
+
+TRANSCRIPT:
+${formattedTranscript}`;
+
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      });
+
+      const rawText = response.text || '{}';
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const summaryResult = JSON.parse(cleanJson);
+
+      return res.json(summaryResult);
+    } catch (err: any) {
+      console.error('AI Summarize API error:', err);
+      return res.status(500).json({ error: err.message || 'Error generating summary.' });
     }
   });
 
@@ -636,8 +909,8 @@ Output strictly valid JSON with this schema:
 }
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -692,8 +965,8 @@ Output strictly valid JSON matching this schema:
 }
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',

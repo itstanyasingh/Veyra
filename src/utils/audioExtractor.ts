@@ -24,55 +24,17 @@ export async function extractAudioForTranscription(
   file: File,
   maxDurationSeconds: number = 300
 ): Promise<{ base64Audio: string; mimeType: string }> {
-  // If already an audio file and under 15MB, convert directly
-  if (file.type.startsWith('audio/') && file.size < 15 * 1024 * 1024) {
-    const base64 = await fileToBase64(file);
-    return {
-      base64Audio: base64,
-      mimeType: file.type || 'audio/mp3',
-    };
-  }
-
-  // Attempt Web Audio API extraction for video or larger files
-  try {
-    const arrayBuffer = await file.slice(0, 40 * 1024 * 1024).arrayBuffer();
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    
-    if (!AudioContextClass) {
-      const fallbackBase64 = await fileToBase64(file);
-      return { base64Audio: fallbackBase64, mimeType: file.type || 'audio/mp3' };
-    }
-
-    const audioCtx = new AudioContextClass();
-    const decodedAudio = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
-    await audioCtx.close();
-
-    const targetSampleRate = 16000;
-    const duration = Math.min(decodedAudio.duration, maxDurationSeconds);
-    const offlineCtx = new OfflineAudioContext(1, Math.floor(targetSampleRate * duration), targetSampleRate);
-
-    const source = offlineCtx.createBufferSource();
-    source.buffer = decodedAudio;
-    source.connect(offlineCtx.destination);
-    source.start(0);
-
-    const renderedBuffer = await offlineCtx.startRendering();
-    const wavBlob = audioBufferToWavBlob(renderedBuffer);
-    const base64Wav = await fileToBase64(wavBlob);
-
-    return {
-      base64Audio: base64Wav,
-      mimeType: 'audio/wav',
-    };
-  } catch (err) {
-    console.warn('Web Audio extraction fallback to direct slice:', err);
-    // Fallback: Read file directly
-    const directBase64 = await fileToBase64(file.slice(0, 20 * 1024 * 1024));
-    return {
-      base64Audio: directBase64,
-      mimeType: file.type || 'audio/mp3',
-    };
-  }
+  console.log('[Veyra Audio] Preparing file for Gemini transcription:', file.name, 'size:', file.size, 'type:', file.type);
+  
+  // Direct safe slice to under 10MB ensures blazing fast base64 encoding and robust transmission
+  const MAX_SLICE_SIZE = 10 * 1024 * 1024;
+  const targetSlice = file.size > MAX_SLICE_SIZE ? file.slice(0, MAX_SLICE_SIZE) : file;
+  
+  const base64 = await fileToBase64(targetSlice);
+  return {
+    base64Audio: base64,
+    mimeType: file.type || 'video/mp4',
+  };
 }
 
 /**

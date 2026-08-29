@@ -31,6 +31,8 @@ interface WorkspaceHeaderProps {
   onRename: (newName: string) => void;
   onOpenReplaceMedia: () => void;
   onOpenDeleteConfirm: () => void;
+  activeCaptionLanguage?: string;
+  setActiveCaptionLanguage?: (lang: string) => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -41,6 +43,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onRename,
   onOpenReplaceMedia,
   onOpenDeleteConfirm,
+  activeCaptionLanguage = 'source',
+  setActiveCaptionLanguage,
 }) => {
   const [isEditingInline, setIsEditingInline] = useState(false);
   const [nameValue, setNameValue] = useState(project.name);
@@ -69,33 +73,65 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
 
   const handleExport = (type: 'srt' | 'vtt' | 'formatted' | 'txt' | 'csv' | 'json') => {
     setIsExportOpen(false);
-    const cues = project.subtitles || project.transcript || [];
+    
+    const hasTranslation = activeCaptionLanguage !== 'source';
+    const langSuffix = hasTranslation ? `_${activeCaptionLanguage.toLowerCase()}` : '';
+    
+    const cues = hasTranslation 
+      ? (project.translations?.[activeCaptionLanguage]?.map((seg, idx) => ({
+          id: seg.id || `sub_${idx}`,
+          index: idx + 1,
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          text: seg.text,
+          speakerId: seg.speakerId,
+        })) || [])
+      : (project.subtitles || project.transcript || []);
+      
     const speakers = project.speakers || [];
 
     switch (type) {
       case 'srt': {
         const srtContent = generateSRT(cues, speakers);
-        triggerFileDownload(srtContent, `${baseFileName}.srt`, 'text/plain');
+        triggerFileDownload(srtContent, `${baseFileName}${langSuffix}.srt`, 'text/plain');
         break;
       }
       case 'vtt': {
         const vttContent = generateVTT(cues, speakers);
-        triggerFileDownload(vttContent, `${baseFileName}.vtt`, 'text/vtt');
+        triggerFileDownload(vttContent, `${baseFileName}${langSuffix}.vtt`, 'text/vtt');
         break;
       }
       case 'formatted': {
-        const txt = generateFormattedTranscript(project);
-        triggerFileDownload(txt, `${baseFileName}_transcript.txt`, 'text/plain');
+        const projectToExport = hasTranslation 
+          ? {
+              ...project,
+              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
+            }
+          : project;
+        const txt = generateFormattedTranscript(projectToExport);
+        triggerFileDownload(txt, `${baseFileName}${langSuffix}_transcript.txt`, 'text/plain');
         break;
       }
       case 'txt': {
-        const raw = generatePlainTXT(project);
-        triggerFileDownload(raw, `${baseFileName}_raw.txt`, 'text/plain');
+        const projectToExport = hasTranslation 
+          ? {
+              ...project,
+              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
+            }
+          : project;
+        const raw = generatePlainTXT(projectToExport);
+        triggerFileDownload(raw, `${baseFileName}${langSuffix}_raw.txt`, 'text/plain');
         break;
       }
       case 'csv': {
-        const csv = generateCSV(project);
-        triggerFileDownload(csv, `${baseFileName}.csv`, 'text/csv');
+        const projectToExport = hasTranslation 
+          ? {
+              ...project,
+              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
+            }
+          : project;
+        const csv = generateCSV(projectToExport);
+        triggerFileDownload(csv, `${baseFileName}${langSuffix}.csv`, 'text/csv');
         break;
       }
       case 'json': {

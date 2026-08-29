@@ -13,6 +13,7 @@ export const PROCESSING_STAGES = [
   { id: 'upload', label: 'Fetching video...' },
   { id: 'extracting', label: 'Analyzing video...' },
   { id: 'transcribing', label: 'Transcribing audio...' },
+  { id: 'diarizing', label: 'Identifying speakers...' },
   { id: 'timestamps', label: 'Building transcript...' },
   { id: 'ready', label: 'Transcript ready.' },
 ];
@@ -187,8 +188,8 @@ export async function transcribeMediaUrl(
 
     onProgress({
       stage: 'timestamps',
-      stageIndex: 3,
-      percentage: 0,
+      stageIndex: 4,
+      percentage: 90,
       message: 'Building transcript...',
       isComplete: false,
     });
@@ -197,7 +198,7 @@ export async function transcribeMediaUrl(
 
     onProgress({
       stage: 'ready',
-      stageIndex: 4,
+      stageIndex: 5,
       percentage: 100,
       message: 'Transcript ready.',
       isComplete: true,

@@ -457,6 +457,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                   </span>
                 </div>
 
+                {/* Professional Video Thumbnail Preview */}
+                <div className="relative aspect-video rounded-xl overflow-hidden shadow-inner border border-[#E2E8F0] group">
+                  <img
+                    src="https://images.unsplash.com/photo-1590650153855-d9e808231d41?auto=format&fit=crop&w=800&q=80"
+                    alt="Interview recording preview"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center group-hover:bg-black/40 transition-colors">
+                    <div className="w-12 h-12 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                      <Play className="w-5 h-5 fill-current ml-0.5" />
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2.5 left-3 px-2 py-0.5 bg-black/70 backdrop-blur-md rounded text-[10px] font-mono text-white">
+                    1080p · Studio Recording
+                  </div>
+                </div>
+
                 <div className="space-y-2 bg-white p-3.5 rounded-xl border border-[#E2E8F0]">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-[#2563EB]">Journalist:</span>

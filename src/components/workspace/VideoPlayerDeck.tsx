@@ -238,6 +238,22 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
     }
   };
 
+  // Sync speed, volume, and mute state attributes to native media elements when loaded/updated
+  useEffect(() => {
+    if (isYouTube) {
+      ytControllerRef.current?.setVolume(volume);
+      ytControllerRef.current?.setMuted(isMuted);
+      ytControllerRef.current?.setRate(playbackRate);
+    } else {
+      const el = getMediaElement();
+      if (el) {
+        el.volume = volume;
+        el.muted = isMuted;
+        el.playbackRate = playbackRate;
+      }
+    }
+  }, [isYouTube, mediaUrl, mediaType, getMediaElement, volume, isMuted, playbackRate]);
+
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
 
@@ -369,25 +385,57 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
     };
   }, [isYouTube, getMediaElement, mediaUrl]);
 
+  // Validate, clean, and sort transcript segments for player timeline and captions
+  const validatedTranscriptSegments = React.useMemo(() => {
+    return [...transcriptSegments]
+      .filter((seg) => seg && typeof seg.id === 'string')
+      .map((seg) => {
+        const startTime = typeof seg.startTime === 'number' ? seg.startTime : parseFloat(seg.startTime as any) || 0;
+        const endTime = typeof seg.endTime === 'number' ? seg.endTime : parseFloat(seg.endTime as any) || (startTime + 2);
+        return {
+          ...seg,
+          startTime: Math.max(0, startTime),
+          endTime: Math.max(startTime + 0.01, endTime),
+        };
+      })
+      .sort((a, b) => a.startTime - b.startTime);
+  }, [transcriptSegments]);
+
+  // Validate, clean, and sort subtitles cues for captions
+  const validatedSubtitles = React.useMemo(() => {
+    return [...subtitles]
+      .filter((cue) => cue && typeof cue.id === 'string')
+      .map((cue) => {
+        const startTime = typeof cue.startTime === 'number' ? cue.startTime : parseFloat(cue.startTime as any) || 0;
+        const endTime = typeof cue.endTime === 'number' ? cue.endTime : parseFloat(cue.endTime as any) || (startTime + 2);
+        return {
+          ...cue,
+          startTime: Math.max(0, startTime),
+          endTime: Math.max(startTime + 0.01, endTime),
+        };
+      })
+      .sort((a, b) => a.startTime - b.startTime);
+  }, [subtitles]);
+
   // Current active subtitle text calculation
   const currentSubtitleText = React.useMemo(() => {
     if (!showSubtitlesOverlay) return null;
     const t = internalTime;
     
     // Check subtitles cues first
-    const activeCue = subtitles.find((s) => t >= s.startTime && t <= s.endTime);
+    const activeCue = validatedSubtitles.find((s) => t >= s.startTime && t <= s.endTime);
     if (activeCue) {
       return getCaptionChunk(activeCue.text, activeCue.startTime, activeCue.endTime, t);
     }
 
     // Fallback to transcript segments
-    const activeSeg = transcriptSegments.find((seg) => t >= seg.startTime && t <= seg.endTime);
+    const activeSeg = validatedTranscriptSegments.find((seg) => t >= seg.startTime && t <= seg.endTime);
     if (activeSeg) {
       return getCaptionChunk(activeSeg.text, activeSeg.startTime, activeSeg.endTime, t);
     }
 
     return null;
-  }, [showSubtitlesOverlay, internalTime, subtitles, transcriptSegments]);
+  }, [showSubtitlesOverlay, internalTime, validatedSubtitles, validatedTranscriptSegments]);
 
   const effectiveDuration = mediaDuration || duration || 100;
 
@@ -521,7 +569,7 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
           {/* Background Track */}
           <div className="absolute inset-x-0 h-1.5 bg-[#2A2A2A] rounded-full overflow-hidden">
             {/* Segment separators */}
-            {effectiveDuration > 0 && transcriptSegments.map((seg) => {
+            {effectiveDuration > 0 && validatedTranscriptSegments.map((seg) => {
               const leftPercent = (seg.startTime / effectiveDuration) * 100;
               return (
                 <div

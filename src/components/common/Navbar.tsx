@@ -255,35 +255,183 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, onNavigate }) => {
               </button>
 
               {activeDropdown === 'tools' && (
-                <div className="absolute top-full left-0 mt-1.5 w-60 bg-white rounded-xl border border-[#E2E8F0] shadow-[0_12px_32px_rgba(0,0,0,0.08)] p-3 space-y-1 z-50">
-                  <button
-                    onClick={handleUploadClick}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#F8FAFC] text-xs font-medium text-[#111827] flex items-center justify-between group"
-                  >
-                    <span>Video to Text</span>
-                    <ArrowRight className="w-3 h-3 text-[#64748B] group-hover:text-[#2563EB]" />
-                  </button>
-                  <button
-                    onClick={handleUploadClick}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#F8FAFC] text-xs font-medium text-[#111827] flex items-center justify-between group"
-                  >
-                    <span>Audio to Text</span>
-                    <ArrowRight className="w-3 h-3 text-[#64748B] group-hover:text-[#2563EB]" />
-                  </button>
-                  <button
-                    onClick={handleUploadClick}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#F8FAFC] text-xs font-medium text-[#111827] flex items-center justify-between group"
-                  >
-                    <span>Subtitle Generator (.SRT)</span>
-                    <ArrowRight className="w-3 h-3 text-[#64748B] group-hover:text-[#2563EB]" />
-                  </button>
-                  <button
-                    onClick={() => handleLinkClick('/search')}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#F8FAFC] text-xs font-medium text-[#111827] flex items-center justify-between group"
-                  >
-                    <span>Transcript Search</span>
-                    <ArrowRight className="w-3 h-3 text-[#64748B] group-hover:text-[#2563EB]" />
-                  </button>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-[760px] bg-white rounded-xl border border-[#E2E8F0] shadow-[0_12px_32px_rgba(0,0,0,0.08)] p-5 grid grid-cols-4 gap-5 animate-in fade-in-50 zoom-in-95 z-50 select-none">
+                  
+                  {/* Category A & B: Transcription & Subtitles */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#2563EB] font-mono">TRANSCRIPTION</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=video-to-text')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Video to Text
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=audio-to-text')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Audio to Text
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=speech-to-text')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Speech to Text
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] font-mono">SUBTITLES</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=subtitle-generator')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Subtitle Generator
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=subtitle-shifter')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Timing Adjuster
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=subtitle-translator')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Subtitle Translator
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Category C & D: Audio & Video Tools */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#2563EB] font-mono">AUDIO TOOLS</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=audio-extractor')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Audio Extractor
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=audio-trimmer')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Audio Trimmer
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=audio-booster')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Volume Booster
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=silence-remover')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Silence Remover
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] font-mono">VIDEO TOOLS</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=video-trimmer')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Video Trimmer
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=video-cropper')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Video Cropper
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=frame-extractor')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Frame Extractor
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Category E & F: Conversion & AI Tools */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#2563EB] font-mono">CONVERSION</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=subtitle-converter')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            SRT ↔ VTT Converter
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=export-txt')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Transcript to TXT
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] font-mono">AI WORKSPACE</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=ai-summarizer')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Video Summarizer
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=ai-chapters')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Chapter Generator
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=ai-quiz')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Interactive Quiz
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Category G & H: Search & Utilities */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#2563EB] font-mono">SEARCH &amp; ANALYSIS</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/search')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Transcript Search
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=analysis-speakers')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Speaker Breakdown
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=analysis-keywords')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Keyword Frequency
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] font-mono">MEDIA UTILITIES</div>
+                      <ul className="space-y-1">
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=utility-metadata')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Metadata Viewer
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => handleLinkClick('/tools?tool=utility-duration')} className="w-full text-left p-1 rounded-md hover:bg-[#F8FAFC] text-[11px] font-semibold text-[#111827] hover:text-[#2563EB]">
+                            Duration Calculator
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
                 </div>
               )}
             </div>
