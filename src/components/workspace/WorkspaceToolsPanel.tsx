@@ -23,11 +23,35 @@ import {
   RotateCcw,
   X,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  ListOrdered,
+  Bookmark,
+  CheckSquare,
+  Tag,
+  Hash,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
-import { Project, TranscriptSegment, Speaker, SubtitleCue } from '../../types';
+import { 
+  Project, 
+  TranscriptSegment, 
+  Speaker, 
+  SubtitleCue, 
+  AIAnalysisTask, 
+  AIAnalysisResults,
+  AISummaryResult,
+  AIKeyPoint,
+  AIChapter,
+  AIKeyMoment,
+  AIActionItem,
+  AIQuestion,
+  AITopic,
+  AIKeyword
+} from '../../types';
 import { formatDuration } from '../../utils/formatters';
 import { generateSRT, generateVTT, triggerFileDownload, sanitizeFileName } from '../../utils/exportUtils';
+import { analyzeTranscriptTask, calculateTranscriptHash } from '../../services/aiAnalysisService';
 
 export function formatTimecode(seconds: number): string {
   if (isNaN(seconds) || seconds < 0) return '00:00.000';
@@ -180,10 +204,12 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   ]);
   const [isAiGenerating, setIsAiGenerating] = useState(false);
 
-  // Summary State
+  // Summary & AI Intelligence Tools State
+  const [activeAITool, setActiveAITool] = useState<AIAnalysisTask>('summary');
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'detailed'>('medium');
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [copiedStatus, setCopiedStatus] = useState(false);
 
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
@@ -208,6 +234,8 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   const speakers = project.speakers || [];
   const subtitles = project.subtitles || [];
   const summary = project.summary;
+  const currentTranscriptHash = React.useMemo(() => calculateTranscriptHash(segments), [segments]);
+  const aiAnalysisResults: AIAnalysisResults = project.aiAnalysisResults || {};
 
   // Derive active subtitles list from project.subtitles or project.transcript
   const activeSubtitlesList: SubtitleCue[] = React.useMemo(() => {
@@ -461,10 +489,10 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     setTranslatedSegments(null);
     setShowTranslatedView(false);
     setTranslationError(null);
-    setSummaryError(null);
+    setAnalysisError(null);
     setIsAiGenerating(false);
     setIsTranslating(false);
-    setIsGeneratingSummary(false);
+    setIsAnalyzing(false);
   }, [project.name, project.mediaUrl]);
 
   // Search matches with intelligent ranking & multi-language support
@@ -863,36 +891,115 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     }
   };
 
-  // Real AI Summary generation handler
-  const handleGenerateSummary = async (selectedLength: 'short' | 'medium' | 'detailed') => {
+  // Real AI Universal Analysis Task Runner
+  const handleRunAITask = async (targetTask?: AIAnalysisTask) => {
+    const task = targetTask || activeAITool;
     if (segments.length === 0) return;
-    setIsGeneratingSummary(true);
-    setSummaryError(null);
+    
+    setIsAnalyzing(true);
+    setAnalysisError(null);
 
     try {
-      const response = await fetch('/api/ai/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          segments,
-          length: selectedLength,
-          projectName: project.name,
-        }),
+      const res = await analyzeTranscriptTask({
+        transcript: segments,
+        task,
+        options: task === 'summary' ? { length: summaryLength } : undefined,
+        projectName: project.name,
+        duration: project.duration,
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Failed to generate summary (HTTP ${response.status})`);
+      const updatedResults: AIAnalysisResults = {
+        ...project.aiAnalysisResults,
+        [task]: task === 'summary' ? { ...res, length: summaryLength } : (res[task] || res),
+        transcriptHash: currentTranscriptHash,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Ensure backwards compatibility with project.summary for existing code
+      let updatedSummary = project.summary;
+      if (task === 'summary') {
+        updatedSummary = {
+          overview: res.overview || '',
+          keyPoints: res.keyPoints || [],
+          chapters: updatedResults.chapters || project.summary?.chapters || [],
+          actionItems: updatedResults.actionItems?.map((a: any) => typeof a === 'string' ? a : a.task) || project.summary?.actionItems || [],
+        };
+      } else if (task === 'chapters') {
+        updatedSummary = {
+          overview: project.summary?.overview || '',
+          keyPoints: project.summary?.keyPoints || [],
+          chapters: res.chapters || [],
+          actionItems: project.summary?.actionItems || [],
+        };
       }
 
-      const data = await response.json();
-      onUpdateProject({ summary: data });
+      onUpdateProject({
+        aiAnalysisResults: updatedResults,
+        transcriptHash: currentTranscriptHash,
+        summary: updatedSummary,
+      });
     } catch (err: any) {
-      console.error('Summary generation error:', err);
-      setSummaryError(err?.message || 'Failed to generate summary. Please check your API key configuration and try again.');
+      console.error(`AI Analysis error for task ${task}:`, err);
+      setAnalysisError(err?.message || `Failed to generate ${task}. Please check your GEMINI_API_KEY configuration and try again.`);
     } finally {
-      setIsGeneratingSummary(false);
+      setIsAnalyzing(false);
     }
+  };
+
+  const getAnalysisTextForCopy = (tool: AIAnalysisTask): string => {
+    const data = aiAnalysisResults[tool];
+    if (!data) return '';
+
+    if (tool === 'summary') {
+      const s = data as AISummaryResult;
+      return `EXECUTIVE SUMMARY (${(s.length || 'medium').toUpperCase()})\n\nOVERVIEW:\n${s.overview}\n\nKEY TAKEAWAYS:\n` + (s.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n');
+    }
+    if (tool === 'keyPoints') {
+      return (data as AIKeyPoint[]).map((p, i) => `${i + 1}. ${p.title}\n${p.description}`).join('\n\n');
+    }
+    if (tool === 'chapters') {
+      return (data as AIChapter[]).map(c => `[${formatDuration(c.startTime)} - ${formatDuration(c.endTime)}] ${c.title}\n${c.summary}`).join('\n\n');
+    }
+    if (tool === 'keyMoments') {
+      return (data as AIKeyMoment[]).map(m => `[${formatDuration(m.timestamp)}] ${m.title}\n${m.explanation}`).join('\n\n');
+    }
+    if (tool === 'actionItems') {
+      return (data as AIActionItem[]).map(a => `- [ ] ${a.task} | Owner: ${a.owner} | Deadline: ${a.deadline}`).join('\n');
+    }
+    if (tool === 'questions') {
+      const q = data as { asked: AIQuestion[]; unanswered: AIQuestion[] };
+      const askedText = (q.asked || []).map(i => `Q: ${i.question}\nA: ${i.answerOrReason || 'Answered'}`).join('\n\n');
+      const unansweredText = (q.unanswered || []).map(i => `Q: ${i.question}\nReason: ${i.reason || 'Unanswered'}`).join('\n\n');
+      return `ANSWERED QUESTIONS:\n${askedText}\n\nUNANSWERED QUESTIONS:\n${unansweredText}`;
+    }
+    if (tool === 'topics') {
+      return (data as AITopic[]).map(t => `# ${t.name}\n${t.description}\nTimestamps: ${t.timestamps?.map(formatDuration).join(', ') || 'N/A'}`).join('\n\n');
+    }
+    if (tool === 'keywords') {
+      return (data as AIKeyword[]).map(k => `${k.term} [Category: ${k.category || 'General'}] - ${k.count} mentions`).join('\n');
+    }
+    return '';
+  };
+
+  const handleCopyAnalysis = (tool: AIAnalysisTask) => {
+    const text = getAnalysisTextForCopy(tool);
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedStatus(true);
+    setTimeout(() => setCopiedStatus(false), 2000);
+  };
+
+  const handleExportAnalysisTXT = (tool: AIAnalysisTask) => {
+    const text = getAnalysisTextForCopy(tool);
+    if (!text) return;
+    triggerFileDownload(text, `${sanitizeFileName(project.name)}_${tool}.txt`, 'text/plain');
+  };
+
+  const handleExportAnalysisJSON = (tool: AIAnalysisTask) => {
+    const data = aiAnalysisResults[tool];
+    if (!data) return;
+    const jsonStr = JSON.stringify(data, null, 2);
+    triggerFileDownload(jsonStr, `${sanitizeFileName(project.name)}_${tool}.json`, 'application/json');
   };
 
   // Helper to parse and render clickable timestamps in text like [01:24]
@@ -1868,130 +1975,486 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         )}
 
         {/* ============================================================ */}
-        {/* TAB 6: SUMMARY & CHAPTERS */}
+        {/* TAB 6: AI TRANSCRIPT INTELLIGENCE SUITE */}
         {/* ============================================================ */}
         {activeTab === 'summary' && (
-          <div className="p-4 sm:p-6 space-y-6">
-            {/* Length Selector + Actions */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-lg">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[#111111]">Summary Length:</span>
-                <div className="flex gap-1 bg-[#F0F0F0] p-0.5 rounded">
-                  {(['short', 'medium', 'detailed'] as const).map((l) => (
-                    <button
-                      key={l}
-                      disabled={isGeneratingSummary}
-                      onClick={() => setSummaryLength(l)}
-                      className={`px-2 py-1 text-[10px] font-bold uppercase rounded transition-colors cursor-pointer ${
-                        summaryLength === l
-                          ? 'bg-[#111111] text-white'
-                          : 'text-[#666666] hover:text-[#111111]'
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                disabled={isGeneratingSummary || segments.length === 0}
-                onClick={() => handleGenerateSummary(summaryLength)}
-                className="w-full sm:w-auto px-4 py-1.5 bg-[#111111] hover:bg-black disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{isGeneratingSummary ? 'Generating...' : summary ? 'Regenerate' : 'Generate'}</span>
-              </button>
+          <div className="p-4 sm:p-6 space-y-5 flex-1 overflow-y-auto">
+            {/* Sub-tool Selector Bar */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 border-b border-[#E5E5E5] scrollbar-thin">
+              {([
+                { id: 'summary', label: 'Summary', icon: BookOpen },
+                { id: 'keyPoints', label: 'Key Points', icon: ListOrdered },
+                { id: 'chapters', label: 'Chapters', icon: Bookmark },
+                { id: 'keyMoments', label: 'Key Moments', icon: Clock },
+                { id: 'actionItems', label: 'Action Items', icon: CheckSquare },
+                { id: 'questions', label: 'Questions', icon: HelpCircle },
+                { id: 'topics', label: 'Topics', icon: Tag },
+                { id: 'keywords', label: 'Keywords', icon: Hash },
+              ] as const).map(({ id, label, icon: Icon }) => {
+                const hasResult = !!aiAnalysisResults[id];
+                const isActive = activeAITool === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => {
+                      setActiveAITool(id);
+                      setAnalysisError(null);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-[#111111] text-white shadow-xs'
+                        : 'bg-[#FAFAFA] text-[#666666] border border-[#E5E5E5] hover:border-[#111111] hover:text-[#111111]'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{label}</span>
+                    {hasResult && !isActive && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            {summaryError && (
-              <div className="p-3.5 bg-[#FFF5F5] border border-[#FEB2B2] text-[#C53030] rounded-lg text-xs leading-relaxed">
-                <span className="font-bold">Error:</span> {summaryError}
+            {/* Outdated Transcript Banner */}
+            {aiAnalysisResults[activeAITool] && aiAnalysisResults.transcriptHash && aiAnalysisResults.transcriptHash !== currentTranscriptHash && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3 text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Transcript has been edited. AI results may be outdated.</span>
+                </div>
+                <button
+                  disabled={isAnalyzing || segments.length === 0}
+                  onClick={() => handleRunAITask(activeAITool)}
+                  className="px-2.5 py-1 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded text-[11px] flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Update</span>
+                </button>
               </div>
             )}
 
-            {isGeneratingSummary ? (
-              <div className="flex flex-col items-center justify-center py-12 space-y-3">
-                <span className="w-5 h-5 rounded-full border-2 border-[#111111] border-t-transparent animate-spin" />
-                <span className="text-xs text-[#666666] text-center">VEYRA AI is analyzing the transcript and synthesizing the summary...</span>
-              </div>
-            ) : summary ? (
-              <>
-                {/* Executive Overview */}
-                <div className="space-y-2">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
-                    Executive Overview
-                  </h3>
-                  <p className="text-xs sm:text-sm text-[#333333] leading-relaxed bg-[#FAFAFA] border border-[#E5E5E5] p-4 rounded-lg">
-                    {summary.overview}
-                  </p>
-                </div>
-
-                {/* Key Points */}
-                <div className="space-y-2.5">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
-                    Key Takeaways
-                  </h3>
-                  <div className="space-y-2">
-                    {summary.keyPoints.map((point, idx) => (
-                      <div key={idx} className="flex items-start gap-2.5 text-xs text-[#333333]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#111111] mt-1.5 shrink-0" />
-                        <span className="leading-relaxed">{point}</span>
-                      </div>
+            {/* Tool Toolbar & Actions */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-xl">
+              {/* Tool specific options */}
+              {activeAITool === 'summary' ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-[#111111]">Length:</span>
+                  <div className="flex gap-1 bg-[#F0F0F0] p-0.5 rounded-md">
+                    {(['short', 'medium', 'detailed'] as const).map((l) => (
+                      <button
+                        key={l}
+                        disabled={isAnalyzing}
+                        onClick={() => setSummaryLength(l)}
+                        className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded transition-colors cursor-pointer ${
+                          summaryLength === l
+                            ? 'bg-[#111111] text-white'
+                            : 'text-[#666666] hover:text-[#111111]'
+                        }`}
+                      >
+                        {l}
+                      </button>
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#111111]">
+                  <span>AI Tool:</span>
+                  <span className="capitalize text-[#666666] font-normal">{activeAITool.replace(/([AZ])/g, ' $1')}</span>
+                </div>
+              )}
 
-                {/* Video Chapters */}
-                {summary.chapters && summary.chapters.length > 0 && (
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
-                      Video Chapters
-                    </h3>
-                    <div className="divide-y divide-[#F5F5F5] border border-[#E5E5E5] rounded-lg overflow-hidden">
-                      {summary.chapters.map((chapter, idx) => (
-                        <div
-                          key={idx}
-                          onClick={() => onSeek(chapter.startTime)}
-                          className="p-3.5 bg-white hover:bg-[#FAFAFA] transition-colors cursor-pointer space-y-1"
-                        >
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-[#111111]">{chapter.title}</span>
-                            <span className="px-2 py-0.5 bg-[#F0F0F0] rounded text-[11px] font-mono-time text-[#111111] flex items-center gap-1">
+              {/* Actions: Generate, Copy, Export */}
+              <div className="flex items-center gap-2 shrink-0">
+                {aiAnalysisResults[activeAITool] && (
+                  <>
+                    <button
+                      onClick={() => handleCopyAnalysis(activeAITool)}
+                      title="Copy result to clipboard"
+                      className="px-2.5 py-1.5 bg-white border border-[#E5E5E5] hover:border-[#111111] text-[#111111] rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      {copiedStatus ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedStatus ? 'Copied' : 'Copy'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleExportAnalysisTXT(activeAITool)}
+                      title="Download as TXT"
+                      className="px-2.5 py-1.5 bg-white border border-[#E5E5E5] hover:border-[#111111] text-[#111111] rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>TXT</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleExportAnalysisJSON(activeAITool)}
+                      title="Download as JSON"
+                      className="px-2.5 py-1.5 bg-white border border-[#E5E5E5] hover:border-[#111111] text-[#111111] rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>JSON</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  disabled={isAnalyzing || segments.length === 0}
+                  onClick={() => handleRunAITask(activeAITool)}
+                  className="px-4 py-1.5 bg-[#111111] hover:bg-black disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>
+                    {isAnalyzing
+                      ? 'Analyzing...'
+                      : aiAnalysisResults[activeAITool]
+                      ? 'Regenerate'
+                      : 'Generate'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Error Display */}
+            {analysisError && (
+              <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs leading-relaxed flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Error:</span> {analysisError}
+                </div>
+              </div>
+            )}
+
+            {/* Loading State */}
+            {isAnalyzing ? (
+              <div className="flex flex-col items-center justify-center py-16 space-y-3">
+                <span className="w-6 h-6 rounded-full border-2 border-[#111111] border-t-transparent animate-spin" />
+                <span className="text-xs text-[#666666] font-medium text-center">
+                  VEYRA AI is analyzing transcript content for {activeAITool.replace(/([A-Z])/g, ' $1').toLowerCase()}...
+                </span>
+              </div>
+            ) : aiAnalysisResults[activeAITool] ? (
+              <div className="space-y-6">
+                {/* 1. SUMMARY TOOL */}
+                {activeAITool === 'summary' && (() => {
+                  const data = aiAnalysisResults.summary || { overview: summary?.overview || '', keyPoints: summary?.keyPoints || [] };
+                  return (
+                    <>
+                      <div className="space-y-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
+                          Executive Overview
+                        </h3>
+                        <p className="text-xs sm:text-sm text-[#333333] leading-relaxed bg-[#FAFAFA] border border-[#E5E5E5] p-4 rounded-xl">
+                          {renderGroundedTextWithClickableTimestamps(data.overview)}
+                        </p>
+                      </div>
+
+                      {data.keyPoints && data.keyPoints.length > 0 && (
+                        <div className="space-y-2.5">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
+                            Key Takeaways
+                          </h3>
+                          <div className="space-y-2">
+                            {data.keyPoints.map((point, idx) => (
+                              <div key={idx} className="flex items-start gap-2.5 text-xs text-[#333333] bg-white border border-[#E5E5E5] p-3 rounded-lg">
+                                <span className="w-5 h-5 rounded-full bg-[#111111] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                                  {idx + 1}
+                                </span>
+                                <span className="leading-relaxed flex-1">{renderGroundedTextWithClickableTimestamps(point)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {/* 2. KEY POINTS TOOL */}
+                {activeAITool === 'keyPoints' && (() => {
+                  const points = aiAnalysisResults.keyPoints || [];
+                  if (points.length === 0) return <p className="text-xs text-[#666666]">No key points extracted.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Core Key Points ({points.length})</h3>
+                      <div className="space-y-3">
+                        {points.map((kp, idx) => (
+                          <div key={kp.id || idx} className="p-4 bg-white border border-[#E5E5E5] rounded-xl space-y-1.5 shadow-2xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-full bg-[#111111] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  {kp.number || idx + 1}
+                                </span>
+                                <h4 className="text-xs font-bold text-[#111111]">{kp.title}</h4>
+                              </div>
+                              {typeof kp.timestamp === 'number' && (
+                                <button
+                                  onClick={() => onSeek(kp.timestamp!)}
+                                  className="px-2 py-0.5 bg-[#F0F0F0] hover:bg-[#111111] hover:text-white rounded text-[11px] font-mono-time text-[#111111] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                  <span>{formatDuration(kp.timestamp)}</span>
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#555555] leading-relaxed pl-7">
+                              {renderGroundedTextWithClickableTimestamps(kp.description)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. CHAPTERS TOOL */}
+                {activeAITool === 'chapters' && (() => {
+                  const chapters = aiAnalysisResults.chapters || [];
+                  if (chapters.length === 0) return <p className="text-xs text-[#666666]">No chapters generated.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Media Chapters ({chapters.length})</h3>
+                      <div className="divide-y divide-[#E5E5E5] border border-[#E5E5E5] rounded-xl overflow-hidden bg-white shadow-2xs">
+                        {chapters.map((ch, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => onSeek(ch.startTime)}
+                            className="p-4 hover:bg-[#FAFAFA] transition-colors cursor-pointer space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-[#111111] flex items-center gap-2">
+                                <Bookmark className="w-3.5 h-3.5 text-[#111111]" />
+                                <span>{ch.title}</span>
+                              </span>
+                              <span className="px-2.5 py-1 bg-[#F0F0F0] rounded-md text-[11px] font-mono-time text-[#111111] font-semibold flex items-center gap-1">
+                                <Play className="w-2.5 h-2.5 fill-current" />
+                                <span>{formatDuration(ch.startTime)} - {formatDuration(ch.endTime)}</span>
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#666666] leading-relaxed pl-5">
+                              {renderGroundedTextWithClickableTimestamps(ch.summary)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 4. KEY MOMENTS TOOL */}
+                {activeAITool === 'keyMoments' && (() => {
+                  const moments = aiAnalysisResults.keyMoments || [];
+                  if (moments.length === 0) return <p className="text-xs text-[#666666]">No key moments extracted.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Key Moments & Highlights ({moments.length})</h3>
+                      <div className="space-y-2.5">
+                        {moments.map((km, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => onSeek(km.timestamp)}
+                            className="p-3.5 bg-white border border-[#E5E5E5] hover:border-[#111111] rounded-xl transition-all cursor-pointer flex items-start gap-3 shadow-2xs"
+                          >
+                            <button className="px-2.5 py-1 bg-[#111111] text-white rounded text-[11px] font-mono-time font-bold flex items-center gap-1 shrink-0 mt-0.5">
                               <Play className="w-2.5 h-2.5 fill-current" />
-                              <span>{formatDuration(chapter.startTime)}</span>
+                              <span>{formatDuration(km.timestamp)}</span>
+                            </button>
+                            <div className="space-y-1 flex-1">
+                              <h4 className="text-xs font-bold text-[#111111]">{km.title}</h4>
+                              <p className="text-xs text-[#666666] leading-relaxed">
+                                {renderGroundedTextWithClickableTimestamps(km.explanation)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 5. ACTION ITEMS TOOL */}
+                {activeAITool === 'actionItems' && (() => {
+                  const items = aiAnalysisResults.actionItems || [];
+                  if (items.length === 0) return <p className="text-xs text-[#666666]">No action items identified in transcript.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Action Items & Tasks ({items.length})</h3>
+                      <div className="space-y-2">
+                        {items.map((item, idx) => (
+                          <div key={idx} className="p-3.5 bg-white border border-[#E5E5E5] rounded-xl flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              defaultChecked={item.completed}
+                              className="accent-[#111111] rounded mt-0.5 cursor-pointer w-4 h-4"
+                            />
+                            <div className="space-y-1.5 flex-1 text-xs">
+                              <p className="font-semibold text-[#111111] leading-relaxed">{item.task}</p>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#666666]">
+                                <span className="px-2 py-0.5 bg-[#F0F0F0] rounded font-medium">
+                                  Owner: <strong className="text-[#111111]">{item.owner || 'Not specified'}</strong>
+                                </span>
+                                <span className="px-2 py-0.5 bg-[#F0F0F0] rounded font-medium">
+                                  Deadline: <strong className="text-[#111111]">{item.deadline || 'Not specified'}</strong>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 6. QUESTIONS TOOL */}
+                {activeAITool === 'questions' && (() => {
+                  const qData = aiAnalysisResults.questions || { asked: [], unanswered: [] };
+                  const asked = qData.asked || [];
+                  const unanswered = qData.unanswered || [];
+
+                  return (
+                    <div className="space-y-6">
+                      {/* Answered Questions */}
+                      <div className="space-y-3">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
+                          Answered Questions ({asked.length})
+                        </h3>
+                        {asked.length === 0 ? (
+                          <p className="text-xs text-[#666666]">No answered questions extracted.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {asked.map((q, idx) => (
+                              <div key={idx} className="p-4 bg-white border border-[#E5E5E5] rounded-xl space-y-2">
+                                <div className="flex items-center justify-between gap-2 text-xs">
+                                  <span className="font-bold text-[#111111] flex items-center gap-1.5">
+                                    <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>{q.question}</span>
+                                  </span>
+                                  {typeof q.timestamp === 'number' && (
+                                    <button
+                                      onClick={() => onSeek(q.timestamp!)}
+                                      className="px-2 py-0.5 bg-[#F0F0F0] hover:bg-[#111111] hover:text-white rounded text-[11px] font-mono-time text-[#111111] flex items-center gap-1 cursor-pointer transition-colors"
+                                    >
+                                      <Play className="w-2.5 h-2.5 fill-current" />
+                                      <span>{formatDuration(q.timestamp)}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="p-2.5 bg-[#FAFAFA] border border-[#EEEEEE] rounded-lg text-xs text-[#444444] space-y-1">
+                                  <span className="font-semibold text-[#111111] block text-[11px]">Answer Summary:</span>
+                                  <p>{renderGroundedTextWithClickableTimestamps(q.answerOrReason || 'Answered in transcript.')}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Unanswered Questions */}
+                      <div className="space-y-3">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
+                          Unanswered Questions ({unanswered.length})
+                        </h3>
+                        {unanswered.length === 0 ? (
+                          <p className="text-xs text-[#666666]">No unanswered questions detected.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {unanswered.map((q, idx) => (
+                              <div key={idx} className="p-3.5 bg-white border border-amber-200 rounded-xl space-y-1 text-xs">
+                                <p className="font-semibold text-[#111111] flex items-center gap-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                  <span>{q.question}</span>
+                                </p>
+                                <p className="text-[#666666] pl-5 text-[11px]">
+                                  Reason: {q.reason || 'Not addressed in recording.'}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 7. TOPICS TOOL */}
+                {activeAITool === 'topics' && (() => {
+                  const topics = aiAnalysisResults.topics || [];
+                  if (topics.length === 0) return <p className="text-xs text-[#666666]">No topics identified.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Discussed Topics ({topics.length})</h3>
+                      <div className="space-y-3">
+                        {topics.map((top, idx) => (
+                          <div key={idx} className="p-4 bg-white border border-[#E5E5E5] rounded-xl space-y-2">
+                            <h4 className="text-xs font-bold text-[#111111] flex items-center gap-2">
+                              <Tag className="w-3.5 h-3.5 text-[#111111]" />
+                              <span>{top.name}</span>
+                            </h4>
+                            <p className="text-xs text-[#555555] leading-relaxed">
+                              {renderGroundedTextWithClickableTimestamps(top.description)}
+                            </p>
+                            {top.timestamps && top.timestamps.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                <span className="text-[11px] text-[#888888] font-medium">Mentions at:</span>
+                                {top.timestamps.map((ts, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => onSeek(ts)}
+                                    className="px-2 py-0.5 bg-[#F0F0F0] hover:bg-[#111111] hover:text-white rounded text-[10px] font-mono-time text-[#111111] flex items-center gap-1 cursor-pointer transition-colors"
+                                  >
+                                    <Play className="w-2 h-2 fill-current" />
+                                    <span>{formatDuration(ts)}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 8. KEYWORDS TOOL */}
+                {activeAITool === 'keywords' && (() => {
+                  const keywords = aiAnalysisResults.keywords || [];
+                  if (keywords.length === 0) return <p className="text-xs text-[#666666]">No keywords extracted.</p>;
+                  return (
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">Keywords & Technical Terms ({keywords.length})</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {keywords.map((kw, idx) => (
+                          <div key={idx} className="p-3 bg-white border border-[#E5E5E5] rounded-xl flex items-center justify-between gap-2 text-xs">
+                            <div className="space-y-0.5">
+                              <span className="font-bold text-[#111111] block">{kw.term}</span>
+                              <span className="text-[10px] text-[#888888] font-medium uppercase tracking-wider">
+                                {kw.category || 'General'}
+                              </span>
+                            </div>
+                            <span className="px-2.5 py-1 bg-[#F0F0F0] rounded-full text-[11px] font-mono-time font-bold text-[#111111]">
+                              {kw.count} {kw.count === 1 ? 'mention' : 'mentions'}
                             </span>
                           </div>
-                          <p className="text-xs text-[#666666] leading-relaxed">
-                            {chapter.summary}
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {/* Action Items */}
-                {summary.actionItems && summary.actionItems.length > 0 && (
-                  <div className="space-y-2.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#111111]">
-                      Action Items
-                    </h3>
-                    <div className="space-y-2">
-                      {summary.actionItems.map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-2.5 text-xs text-[#333333]">
-                          <input type="checkbox" className="accent-[#111111] rounded" />
-                          <span>{item}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+                  );
+                })()}
+              </div>
             ) : (
-              <div className="text-center py-12 text-xs text-[#888888] space-y-2">
-                <p>No summary has been generated for this video yet.</p>
-                <p className="text-[11px] text-[#999999]">Choose a summary length above and click "Generate".</p>
+              <div className="text-center py-16 text-xs text-[#888888] space-y-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-xl p-6">
+                <Sparkles className="w-8 h-8 text-[#CCCCCC] mx-auto" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-[#111111]">No analysis generated for {activeAITool.replace(/([A-Z])/g, ' $1').toLowerCase()} yet.</p>
+                  <p className="text-[11px] text-[#777777]">Click "Generate" above to analyze your transcript with VEYRA AI.</p>
+                </div>
+                <button
+                  disabled={isAnalyzing || segments.length === 0}
+                  onClick={() => handleRunAITask(activeAITool)}
+                  className="px-4 py-2 bg-[#111111] hover:bg-black text-white font-semibold rounded-lg text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Generate {activeAITool.replace(/([A-Z])/g, ' $1')}</span>
+                </button>
               </div>
             )}
           </div>

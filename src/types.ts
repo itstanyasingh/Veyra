@@ -64,6 +64,88 @@ export interface ProjectSummary {
   actionItems: string[];
 }
 
+export type AIAnalysisTask =
+  | 'summary'
+  | 'keyPoints'
+  | 'chapters'
+  | 'keyMoments'
+  | 'actionItems'
+  | 'questions'
+  | 'topics'
+  | 'keywords';
+
+export interface AIKeyPoint {
+  id: string;
+  number: string;
+  title: string;
+  description: string;
+  timestamp?: number;
+}
+
+export interface AIChapter {
+  title: string;
+  startTime: number;
+  endTime: number;
+  summary: string;
+}
+
+export interface AIKeyMoment {
+  timestamp: number;
+  title: string;
+  explanation: string;
+}
+
+export interface AIActionItem {
+  task: string;
+  owner: string;
+  deadline: string;
+  completed?: boolean;
+}
+
+export interface AIQuestion {
+  question: string;
+  askedBy?: string;
+  timestamp?: number;
+  isAnswered: boolean;
+  answerOrReason?: string;
+  reason?: string;
+}
+
+export interface AITopic {
+  name: string;
+  description: string;
+  timestamps: number[];
+}
+
+export interface AIKeyword {
+  term: string;
+  category?: string;
+  count: number;
+  relevance: number;
+}
+
+export interface AISummaryResult {
+  overview: string;
+  keyPoints: string[];
+  length?: 'short' | 'medium' | 'detailed';
+}
+
+export interface AIAnalysisResults {
+  summary?: AISummaryResult;
+  keyPoints?: AIKeyPoint[];
+  chapters?: AIChapter[];
+  keyMoments?: AIKeyMoment[];
+  actionItems?: AIActionItem[];
+  questions?: {
+    asked: AIQuestion[];
+    unanswered: AIQuestion[];
+  };
+  topics?: AITopic[];
+  keywords?: AIKeyword[];
+  transcriptHash?: string;
+  updatedAt?: string;
+}
+
 export type SourceType = 'upload' | 'youtube';
 
 export interface Project {
@@ -93,4 +175,6 @@ export interface Project {
   notes?: ProjectNote[];
   highlights?: ProjectHighlight[];
   summary?: ProjectSummary;
+  aiAnalysisResults?: AIAnalysisResults;
+  transcriptHash?: string;
 }

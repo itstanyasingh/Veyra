@@ -17,8 +17,35 @@ export async function fileToBase64(file: File | Blob): Promise<string> {
 }
 
 /**
- * Extracts and downsamples audio from video/audio files using the Web Audio API
- * into a lightweight 16kHz mono WAV base64 string for ultra-fast Gemini transcription.
+ * Detects accurate MIME type for audio or video files
+ */
+export function detectAudioMimeType(file: File): string {
+  if (file.type && file.type.trim()) {
+    const t = file.type.toLowerCase();
+    if (t.startsWith('audio/') || t.startsWith('video/')) {
+      return file.type;
+    }
+  }
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  switch (ext) {
+    case 'mp3': return 'audio/mp3';
+    case 'wav': return 'audio/wav';
+    case 'm4a': return 'audio/m4a';
+    case 'aac': return 'audio/aac';
+    case 'flac': return 'audio/flac';
+    case 'ogg': return 'audio/ogg';
+    case 'webm': return 'audio/webm';
+    case 'mp4': return 'video/mp4';
+    case 'mov': return 'video/quicktime';
+    case 'avi': return 'video/x-msvideo';
+    case 'mkv': return 'video/x-matroska';
+    default: return file.type || 'audio/mp3';
+  }
+}
+
+/**
+ * Prepares audio/video payload for Gemini transcription.
+ * Ensures whole files up to 40MB are safely encoded to Base64 without container corruption.
  */
 export async function extractAudioForTranscription(
   file: File,
@@ -26,16 +53,27 @@ export async function extractAudioForTranscription(
 ): Promise<{ base64Audio: string; mimeType: string }> {
   console.log('[Veyra Audio] Preparing file for Gemini transcription:', file.name, 'size:', file.size, 'type:', file.type);
   
-  // Direct safe slice to under 10MB ensures blazing fast base64 encoding and robust transmission
-  const MAX_SLICE_SIZE = 10 * 1024 * 1024;
+  const mimeType = detectAudioMimeType(file);
+
+  if (file.size <= 40 * 1024 * 1024) {
+    try {
+      const base64 = await fileToBase64(file);
+      return { base64Audio: base64, mimeType };
+    } catch (err) {
+      console.warn('[Veyra Audio] Direct file base64 read failed, falling back to slice:', err);
+    }
+  }
+
+  // Safe slice for files over 40MB
+  const MAX_SLICE_SIZE = 40 * 1024 * 1024;
   const targetSlice = file.size > MAX_SLICE_SIZE ? file.slice(0, MAX_SLICE_SIZE) : file;
-  
   const base64 = await fileToBase64(targetSlice);
   return {
     base64Audio: base64,
-    mimeType: file.type || 'video/mp4',
+    mimeType,
   };
 }
+
 
 /**
  * Converts an AudioBuffer to a 16-bit PCM WAV Blob

@@ -24,8 +24,8 @@ interface HomeImportAreaProps {
   onNavigate: (path: string) => void;
 }
 
-const SUPPORTED_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'ogg', 'aac'];
-const ACCEPT_STRING = 'video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a';
+const SUPPORTED_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'ogg', 'aac', 'flac'];
+const ACCEPT_STRING = 'video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/flac,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a,.aac,.ogg,.flac';
 
 export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,13 +58,30 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
   });
 
   const validateFile = (file: File): boolean => {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!ext || !SUPPORTED_EXTENSIONS.includes(ext)) {
-      if (!file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
-        setErrorMsg(`Unsupported file format (.${ext || 'unknown'}). Supported formats: MP4, MOV, AVI, MKV, MP3, WAV.`);
-        return false;
-      }
+    if (!file) {
+      setErrorMsg("No file selected.");
+      return false;
     }
+
+    if (file.size > 100 * 1024 * 1024) {
+      setErrorMsg("This file is too large. Please upload a smaller file.");
+      return false;
+    }
+
+    const fileName = file.name.toLowerCase();
+    const ext = fileName.split('.').pop() || '';
+    const isAudioFile = file.type.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'].includes(ext);
+    const isVideoFile = file.type.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+
+    if (!SUPPORTED_EXTENSIONS.includes(ext) && !isAudioFile && !isVideoFile) {
+      if (isAudioFile || /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(fileName)) {
+        setErrorMsg("This audio format isn't supported.");
+      } else {
+        setErrorMsg("This file format isn't supported.");
+      }
+      return false;
+    }
+
     setErrorMsg(null);
     return true;
   };
@@ -261,13 +278,13 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
       try {
         parsed = new URL(trimmed);
       } catch {
-        setErrorMsg('Please enter a valid URL.');
+        setErrorMsg('Enter a valid supported video URL.');
         setIsUrlValidating(false);
         return;
       }
 
       if (!['http:', 'https:'].includes(parsed.protocol)) {
-        setErrorMsg('Please enter a valid URL starting with http:// or https://');
+        setErrorMsg('Enter a valid supported video URL.');
         setIsUrlValidating(false);
         return;
       }
@@ -289,6 +306,12 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         mediaType={processingFileMeta.mediaType}
         duration={processingFileMeta.duration}
         progress={processingProgress}
+        onCancel={() => {
+          setIsProcessing(false);
+          setSelectedFile(null);
+          setErrorMsg(null);
+          setUrlWarning(null);
+        }}
       />
     );
   }
@@ -525,11 +548,36 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
           </div>
         )}
 
-        {/* Error message */}
+        {/* Error message with recovery options */}
         {errorMsg && (
-          <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#DC2626] flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMsg}</span>
+          <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#DC2626] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+              {selectedFile && (
+                <button
+                  type="button"
+                  onClick={() => selectedFile && handleProcessFile(selectedFile)}
+                  className="px-2.5 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] font-semibold text-[11px] rounded cursor-pointer transition-colors"
+                >
+                  Try again
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMsg(null);
+                  setSelectedFile(null);
+                  setUrlInput('');
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] font-semibold text-[11px] rounded cursor-pointer transition-colors"
+              >
+                Choose another file
+              </button>
+            </div>
           </div>
         )}
 

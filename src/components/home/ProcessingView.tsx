@@ -17,6 +17,7 @@ interface ProcessingViewProps {
   mediaType: 'video' | 'audio';
   duration?: number;
   progress: ProcessingProgressState;
+  onCancel?: () => void;
 }
 
 export const ProcessingView: React.FC<ProcessingViewProps> = ({
@@ -25,6 +26,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
   mediaType,
   duration,
   progress,
+  onCancel,
 }) => {
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-12 sm:py-16">
@@ -57,9 +59,21 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#EFF6FF] border border-[#DBEAFE] rounded text-[11px] font-mono-time text-[#2563EB] font-bold self-start sm:self-auto shrink-0">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
-            <span>PROCESSING{progress.percentage > 0 ? ` (${progress.percentage}%)` : ''}</span>
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#EFF6FF] border border-[#DBEAFE] rounded text-[11px] font-mono-time text-[#2563EB] font-bold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
+              <span>PROCESSING{progress.percentage > 0 ? ` (${progress.percentage}%)` : ''}</span>
+            </div>
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:text-[#111827] text-[11px] font-medium rounded transition-colors cursor-pointer"
+                title="Cancel processing and select another file"
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </div>
 

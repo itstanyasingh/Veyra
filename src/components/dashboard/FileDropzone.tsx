@@ -28,12 +28,22 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   const validateAndProcessFile = (file: File) => {
     setErrorMessage(null);
 
+    if (file.size > 100 * 1024 * 1024) {
+      setErrorMessage("This file is too large. Please upload a smaller file.");
+      return;
+    }
+
     const fileName = file.name.toLowerCase();
     const isExtensionValid = SUPPORTED_EXTENSIONS.some((ext) => fileName.endsWith(ext));
     const isMimeValid = file.type ? SUPPORTED_MIME_TYPES.includes(file.type) || file.type.startsWith('video/') || file.type.startsWith('audio/') : false;
 
     if (!isExtensionValid && !isMimeValid) {
-      setErrorMessage('Unsupported file format. Please choose a supported audio or video file (.mp4, .mov, .webm, .mp3, .wav, .m4a, etc).');
+      const isAudioName = /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(fileName);
+      if (isAudioName) {
+        setErrorMessage("This audio format isn't supported.");
+      } else {
+        setErrorMessage("This file format isn't supported.");
+      }
       return;
     }
 

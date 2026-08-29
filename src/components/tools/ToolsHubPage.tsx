@@ -1303,7 +1303,9 @@ export const ToolsHubPage: React.FC<ToolsHubPageProps> = ({ onNavigate }) => {
         setProgressMessage('Prompting Gemini model with conversation transcripts...');
         setProgressPercent(50);
         
-        const textPayload = targetProject.transcript.slice(0, 120).map(s => s.text).join(' ');
+        const textPayload = targetProject.transcript
+          .map(s => `[${typeof s.startTime === 'number' ? s.startTime.toFixed(1) : s.startTime}s] ${s.speakerId || 'Speaker'}: ${s.text}`)
+          .join('\n');
         
         const response = await fetch('/api/ai/ask', {
           method: 'POST',

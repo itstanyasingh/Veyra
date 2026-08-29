@@ -528,17 +528,44 @@ export const VideoPlayerDeck: React.FC<VideoPlayerDeckProps> = ({
         </div>
       ) : (
         /* Uploaded Audio Stream Canvas */
-        <div className="w-full py-12 px-6 sm:px-12 flex flex-col items-center justify-center bg-[#111111] text-white">
-          <audio ref={audioRef} src={mediaUrl} />
-          <div className="w-16 h-16 rounded-full bg-[#1A1A1A] border border-[#333333] flex items-center justify-center text-white mb-3">
-            <Music className="w-8 h-8 text-neutral-300" />
+        <div 
+          onClick={togglePlay}
+          className="relative w-full py-12 px-6 sm:px-12 flex flex-col items-center justify-center bg-[#111111] text-white cursor-pointer select-none group min-h-[260px]"
+        >
+          <audio ref={audioRef} src={mediaUrl} playsInline />
+          
+          <div className="w-16 h-16 rounded-full bg-[#1A1A1A] border border-[#333333] flex items-center justify-center text-white mb-3 shadow-md group-hover:border-[#555555] group-hover:scale-105 transition-all">
+            {isPlaying ? (
+              <Pause className="w-7 h-7 text-white fill-current" />
+            ) : (
+              <Music className="w-7 h-7 text-neutral-300 ml-0.5" />
+            )}
           </div>
+
           <h4 className="text-sm font-semibold tracking-tight text-neutral-200 text-center truncate max-w-md mb-1">
             {fileName || 'Audio Recording'}
           </h4>
           <span className="text-[11px] font-mono-time text-neutral-400">
-            AUDIO WORKSPACE STREAM
+            AUDIO WORKSPACE STREAM {isPlaying ? '• PLAYING' : '• PAUSED'}
           </span>
+
+          {/* Equalizer animation when playing */}
+          {isPlaying && (
+            <div className="flex items-end justify-center gap-1 h-5 mt-3">
+              <span className="w-1 bg-[#2563EB] rounded-full animate-bounce h-3" style={{ animationDelay: '0ms' }} />
+              <span className="w-1 bg-[#2563EB] rounded-full animate-bounce h-5" style={{ animationDelay: '150ms' }} />
+              <span className="w-1 bg-[#2563EB] rounded-full animate-bounce h-2" style={{ animationDelay: '300ms' }} />
+              <span className="w-1 bg-[#2563EB] rounded-full animate-bounce h-4" style={{ animationDelay: '450ms' }} />
+              <span className="w-1 bg-[#2563EB] rounded-full animate-bounce h-3" style={{ animationDelay: '200ms' }} />
+            </div>
+          )}
+
+          {/* Live Subtitle Caption Overlay on Audio Canvas */}
+          {showSubtitlesOverlay && currentSubtitleText && (
+            <div className="mt-5 px-4 py-2 bg-black/85 backdrop-blur-xs text-white text-xs sm:text-sm font-medium rounded-md text-center max-w-[90%] border border-white/10 shadow-lg leading-snug animate-fade-in">
+              {currentSubtitleText}
+            </div>
+          )}
         </div>
       )}
 

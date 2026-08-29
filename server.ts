@@ -828,6 +828,180 @@ ${prompt}
     }
   });
 
+  // Real AI Universal Analysis Endpoint
+  app.post('/api/ai/analyze', async (req, res) => {
+    try {
+      const { segments, task, options, projectName, duration } = req.body;
+      const ai = getGeminiClient();
+
+      if (!ai) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      if (!segments || !Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: 'No transcript segments provided for analysis.' });
+      }
+
+      const formattedTranscript = segments
+        .map((s: any) => `[${typeof s.startTime === 'number' ? s.startTime.toFixed(1) : s.startTime}s - ${typeof s.endTime === 'number' ? s.endTime.toFixed(1) : s.endTime}s] ${s.speakerId || 'Speaker'}: ${s.text}`)
+        .join('\n');
+
+      let taskPrompt = '';
+      if (task === 'summary') {
+        const len = options?.length || 'medium';
+        const detailInstruction = len === 'short'
+          ? 'Provide a 1 short paragraph overview and 3 concise key takeaways.'
+          : len === 'detailed'
+          ? 'Provide 3-4 comprehensive overview paragraphs and 8-10 detailed key takeaways.'
+          : 'Provide 2 paragraph overview and 5 key takeaways.';
+
+        taskPrompt = `Task: Generate a grounded executive summary.
+${detailInstruction}
+Output strictly valid JSON with this schema:
+{
+  "overview": "Overview text...",
+  "keyPoints": ["Point 1", "Point 2"]
+}`;
+      } else if (task === 'keyPoints') {
+        taskPrompt = `Task: Extract the core key points from the transcript.
+Output strictly valid JSON with this schema:
+{
+  "keyPoints": [
+    {
+      "id": "kp_1",
+      "number": "1",
+      "title": "Title of point",
+      "description": "Explanation grounded strictly in transcript",
+      "timestamp": 12.5
+    }
+  ]
+}`;
+      } else if (task === 'chapters') {
+        taskPrompt = `Task: Generate chronological video/audio chapters based on topic transitions.
+CRITICAL MANDATE FOR TIMESTAMPS:
+- startTime and endTime MUST correspond to actual segment timestamps from the provided transcript (ranging from 0 to ${duration || 1000}s).
+- startTime >= 0, endTime > startTime.
+- Output strictly valid JSON with this schema:
+{
+  "chapters": [
+    {
+      "title": "Chapter Title",
+      "startTime": 0.0,
+      "endTime": 30.0,
+      "summary": "Chapter summary text"
+    }
+  ]
+}`;
+      } else if (task === 'keyMoments') {
+        taskPrompt = `Task: Identify the most important moments or highlights in the media.
+CRITICAL: Timestamps MUST be numbers in seconds corresponding to segment start times.
+Output strictly valid JSON with this schema:
+{
+  "keyMoments": [
+    {
+      "timestamp": 15.0,
+      "title": "Moment Title",
+      "explanation": "Why this moment is significant, grounded in transcript"
+    }
+  ]
+}`;
+      } else if (task === 'actionItems') {
+        taskPrompt = `Task: Extract all action items, decisions, and tasks mentioned in the transcript.
+CRITICAL RULES:
+- Set owner to "Not specified" if no specific person/speaker is assigned in dialogue.
+- Set deadline to "Not specified" if no date/time is explicitly mentioned.
+- NEVER invent people, names, or deadlines not present in the text.
+Output strictly valid JSON with this schema:
+{
+  "actionItems": [
+    {
+      "task": "Task description",
+      "owner": "Owner name or Not specified",
+      "deadline": "Deadline or Not specified",
+      "completed": false
+    }
+  ]
+}`;
+      } else if (task === 'questions') {
+        taskPrompt = `Task: Extract questions asked in the transcript and categorize them into answered and unanswered questions.
+Output strictly valid JSON with this schema:
+{
+  "asked": [
+    {
+      "question": "Question text",
+      "askedBy": "Speaker name or Not specified",
+      "timestamp": 12.0,
+      "isAnswered": true,
+      "answerOrReason": "Summary of answer from transcript"
+    }
+  ],
+  "unanswered": [
+    {
+      "question": "Unanswered question text",
+      "reason": "Why it remains unanswered based on transcript"
+    }
+  ]
+}`;
+      } else if (task === 'topics') {
+        taskPrompt = `Task: Identify the main topics discussed.
+CRITICAL: timestamps array should contain numbers in seconds where topic is mentioned.
+Output strictly valid JSON with this schema:
+{
+  "topics": [
+    {
+      "name": "Topic Name",
+      "description": "Description of topic",
+      "timestamps": [0.0, 45.0]
+    }
+  ]
+}`;
+      } else if (task === 'keywords') {
+        taskPrompt = `Task: Extract important keywords, names, technologies, and technical concepts (excluding stop words like the, and, is, um, uh).
+Output strictly valid JSON with this schema:
+{
+  "keywords": [
+    {
+      "term": "Keyword or concept",
+      "category": "Technology/Concept/Person/General",
+      "count": 5,
+      "relevance": 95
+    }
+  ]
+}`;
+      } else {
+        return res.status(400).json({ error: `Unsupported task: ${task}` });
+      }
+
+      const prompt = `You are VEYRA's professional transcript intelligence analyzer.
+Analyze the following transcript for "${projectName || 'Media Project'}".
+
+DO NOT invent or hallucinate facts, dates, names, or timestamps not supported by the transcript text.
+
+${taskPrompt}
+
+TRANSCRIPT CONTENT:
+${formattedTranscript}`;
+
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.7-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      const rawText = response.text || '{}';
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(cleanJson);
+
+      return res.json(parsedData);
+    } catch (err: any) {
+      console.error('AI Analyze API error:', err);
+      return res.status(500).json({ error: err.message || 'Error conducting AI transcript analysis.' });
+    }
+  });
+
   // Real AI Summarize endpoint
   app.post('/api/ai/summarize', async (req, res) => {
     try {
