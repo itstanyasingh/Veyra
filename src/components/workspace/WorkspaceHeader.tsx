@@ -10,9 +10,11 @@ import {
   Check,
   ChevronDown,
   Subtitles,
-  FileText
+  Globe,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
-import { Project } from '../../types';
+import { Project, SubtitleCue } from '../../types';
 import { 
   generateSRT, 
   generateVTT, 
@@ -20,7 +22,8 @@ import {
   generatePlainTXT, 
   generateCSV, 
   generateJSON, 
-  triggerFileDownload 
+  triggerFileDownload,
+  sanitizeFileName
 } from '../../utils/exportUtils';
 
 interface WorkspaceHeaderProps {
@@ -49,6 +52,14 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   const [isEditingInline, setIsEditingInline] = useState(false);
   const [nameValue, setNameValue] = useState(project.name);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ type, text });
+    setTimeout(() => {
+      setToastMessage((current) => (current?.text === text ? null : current));
+    }, 3500);
+  };
 
   const handleSaveInline = () => {
     const trimmed = nameValue.trim();
@@ -69,86 +80,149 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
     }
   };
 
-  const baseFileName = project.name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  const safeName = sanitizeFileName(project.name);
+  const hasTranscript = project.transcript && project.transcript.length > 0;
+  const availableTranslations = project.translations ? Object.keys(project.translations) : [];
 
-  const handleExport = (type: 'srt' | 'vtt' | 'formatted' | 'txt' | 'csv' | 'json') => {
+  const handleExport = (
+    type: 'formatted_txt' | 'plain_txt' | 'csv' | 'json' | 'srt' | 'vtt' | 'trans_txt' | 'trans_srt' | 'trans_vtt',
+    overrideLang?: string
+  ) => {
     setIsExportOpen(false);
-    
-    const hasTranslation = activeCaptionLanguage !== 'source';
-    const langSuffix = hasTranslation ? `_${activeCaptionLanguage.toLowerCase()}` : '';
-    
-    const cues = hasTranslation 
-      ? (project.translations?.[activeCaptionLanguage]?.map((seg, idx) => ({
+
+    // Validate transcript existence
+    if (!hasTranscript) {
+      showToast('No transcript available to export. Transcribe media first.', 'error');
+      return;
+    }
+
+    const speakers = project.speakers || [];
+
+    // Helper for source cues (prefer project.subtitles edited state)
+    const getSourceCues = (): SubtitleCue[] => {
+      if (project.subtitles && project.subtitles.length > 0) {
+        return project.subtitles;
+      }
+      return (project.transcript || []).map((seg, idx) => ({
+        id: seg.id || `sub_${idx}`,
+        index: idx + 1,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text,
+      }));
+    };
+
+    switch (type) {
+      // 1. TRANSCRIPT EXPORTS
+      case 'formatted_txt': {
+        const content = generateFormattedTranscript(project, 'source');
+        triggerFileDownload(content, `${safeName}_transcript.txt`, 'text/plain');
+        showToast('Transcript exported (.TXT)');
+        break;
+      }
+      case 'plain_txt': {
+        const content = generatePlainTXT(project, 'source');
+        triggerFileDownload(content, `${safeName}_raw.txt`, 'text/plain');
+        showToast('Plain text transcript exported (.TXT)');
+        break;
+      }
+      case 'csv': {
+        const content = generateCSV(project, 'source');
+        triggerFileDownload(content, `${safeName}.csv`, 'text/csv');
+        showToast('Transcript spreadsheet exported (.CSV)');
+        break;
+      }
+      case 'json': {
+        const content = generateJSON(project, 'source');
+        triggerFileDownload(content, `${safeName}.json`, 'application/json');
+        showToast('Structured transcript data exported (.JSON)');
+        break;
+      }
+
+      // 2. SUBTITLES EXPORTS
+      case 'srt': {
+        const cues = getSourceCues();
+        if (cues.length === 0) {
+          showToast('No subtitles available to export.', 'error');
+          return;
+        }
+        const srt = generateSRT(cues, speakers);
+        triggerFileDownload(srt, `${safeName}.srt`, 'text/plain');
+        showToast('Subtitles exported (.SRT)');
+        break;
+      }
+      case 'vtt': {
+        const cues = getSourceCues();
+        if (cues.length === 0) {
+          showToast('No subtitles available to export.', 'error');
+          return;
+        }
+        const vtt = generateVTT(cues, speakers);
+        triggerFileDownload(vtt, `${safeName}.vtt`, 'text/vtt');
+        showToast('WebVTT captions exported (.VTT)');
+        break;
+      }
+
+      // 3. TRANSLATED EXPORTS
+      case 'trans_txt': {
+        const lang = overrideLang || (activeCaptionLanguage !== 'source' ? activeCaptionLanguage : availableTranslations[0]);
+        if (!lang || !project.translations?.[lang] || project.translations[lang].length === 0) {
+          showToast('No translation available. Translate the transcript first.', 'error');
+          return;
+        }
+        const content = generateFormattedTranscript(project, lang);
+        triggerFileDownload(content, `${safeName}_${lang.toLowerCase()}_transcript.txt`, 'text/plain');
+        showToast(`Translated transcript exported (${lang} .TXT)`);
+        break;
+      }
+      case 'trans_srt': {
+        const lang = overrideLang || (activeCaptionLanguage !== 'source' ? activeCaptionLanguage : availableTranslations[0]);
+        if (!lang || !project.translations?.[lang] || project.translations[lang].length === 0) {
+          showToast('No translation available. Translate the transcript first.', 'error');
+          return;
+        }
+        const transSegs = project.translations[lang];
+        const transCues: SubtitleCue[] = transSegs.map((seg, idx) => ({
           id: seg.id || `sub_${idx}`,
           index: idx + 1,
           startTime: seg.startTime,
           endTime: seg.endTime,
           text: seg.text,
-          speakerId: seg.speakerId,
-        })) || [])
-      : (project.subtitles || project.transcript || []);
-      
-    const speakers = project.speakers || [];
-
-    switch (type) {
-      case 'srt': {
-        const srtContent = generateSRT(cues, speakers);
-        triggerFileDownload(srtContent, `${baseFileName}${langSuffix}.srt`, 'text/plain');
+        }));
+        const srt = generateSRT(transCues, speakers);
+        triggerFileDownload(srt, `${safeName}_${lang.toLowerCase()}.srt`, 'text/plain');
+        showToast(`Translated subtitles exported (${lang} .SRT)`);
         break;
       }
-      case 'vtt': {
-        const vttContent = generateVTT(cues, speakers);
-        triggerFileDownload(vttContent, `${baseFileName}${langSuffix}.vtt`, 'text/vtt');
-        break;
-      }
-      case 'formatted': {
-        const projectToExport = hasTranslation 
-          ? {
-              ...project,
-              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
-            }
-          : project;
-        const txt = generateFormattedTranscript(projectToExport);
-        triggerFileDownload(txt, `${baseFileName}${langSuffix}_transcript.txt`, 'text/plain');
-        break;
-      }
-      case 'txt': {
-        const projectToExport = hasTranslation 
-          ? {
-              ...project,
-              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
-            }
-          : project;
-        const raw = generatePlainTXT(projectToExport);
-        triggerFileDownload(raw, `${baseFileName}${langSuffix}_raw.txt`, 'text/plain');
-        break;
-      }
-      case 'csv': {
-        const projectToExport = hasTranslation 
-          ? {
-              ...project,
-              transcript: project.translations?.[activeCaptionLanguage] || project.transcript,
-            }
-          : project;
-        const csv = generateCSV(projectToExport);
-        triggerFileDownload(csv, `${baseFileName}${langSuffix}.csv`, 'text/csv');
-        break;
-      }
-      case 'json': {
-        const json = generateJSON(project);
-        triggerFileDownload(json, `${baseFileName}.json`, 'application/json');
+      case 'trans_vtt': {
+        const lang = overrideLang || (activeCaptionLanguage !== 'source' ? activeCaptionLanguage : availableTranslations[0]);
+        if (!lang || !project.translations?.[lang] || project.translations[lang].length === 0) {
+          showToast('No translation available. Translate the transcript first.', 'error');
+          return;
+        }
+        const transSegs = project.translations[lang];
+        const transCues: SubtitleCue[] = transSegs.map((seg, idx) => ({
+          id: seg.id || `sub_${idx}`,
+          index: idx + 1,
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          text: seg.text,
+        }));
+        const vtt = generateVTT(transCues, speakers);
+        triggerFileDownload(vtt, `${safeName}_${lang.toLowerCase()}.vtt`, 'text/vtt');
+        showToast(`Translated WebVTT captions exported (${lang} .VTT)`);
         break;
       }
     }
   };
 
   return (
-    <header className="w-full bg-[#FFFFFF] border-b border-[#E5E5E5] px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 sticky top-0 z-40 select-none">
-      {/* Left: Brand + Breadcrumb */}
+    <header className="h-14 bg-white border-b border-[#E5E5E5] px-4 flex items-center justify-between gap-4 shrink-0 z-20">
+      {/* Left: Navigation & Project Title */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={() => onNavigate('/')}
-          className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#111111] hover:text-[#000000] cursor-pointer shrink-0 transition-colors"
+          className="flex items-center gap-1.5 text-[#111111] hover:text-[#000000] font-bold text-sm tracking-tight transition-colors cursor-pointer shrink-0"
           title="Home"
         >
           <span className="font-extrabold tracking-widest text-sm">VEYRA</span>
@@ -246,59 +320,100 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 className="fixed inset-0 z-40" 
                 onClick={() => setIsExportOpen(false)} 
               />
-              <div className="absolute right-0 mt-1.5 w-56 bg-white border border-[#E5E5E5] rounded-lg shadow-lg py-1.5 z-50 text-xs divide-y divide-[#F0F0F0]">
-                <div className="px-3 py-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999]">
-                  Export Captions
-                </div>
-                <div className="py-1">
-                  <button
-                    onClick={() => handleExport('srt')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">Subtitles (.SRT)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">SubRip</span>
-                  </button>
-                  <button
-                    onClick={() => handleExport('vtt')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">WebVTT (.VTT)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">HTML5</span>
-                  </button>
+              <div className="absolute right-0 mt-1.5 w-60 bg-white border border-[#E5E5E5] rounded-lg shadow-xl py-1.5 z-50 text-xs divide-y divide-[#F0F0F0] max-h-[85vh] overflow-y-auto">
+                {/* 1. TRANSCRIPT */}
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999] bg-[#FAFAFA]">
+                    Transcript
+                  </div>
+                  <div className="py-1">
+                    <button
+                      onClick={() => handleExport('formatted_txt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Formatted Text (.TXT)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">Timestamps</span>
+                    </button>
+                    <button
+                      onClick={() => handleExport('plain_txt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Plain Text (.TXT)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">Raw</span>
+                    </button>
+                    <button
+                      onClick={() => handleExport('json')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Structured Data (.JSON)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">JSON</span>
+                    </button>
+                    <button
+                      onClick={() => handleExport('csv')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Spreadsheet (.CSV)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">Table</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="px-3 pt-2 pb-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999]">
-                  Export Transcript
+                {/* 2. SUBTITLES */}
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999] bg-[#FAFAFA]">
+                    Subtitles &amp; Captions
+                  </div>
+                  <div className="py-1">
+                    <button
+                      onClick={() => handleExport('srt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Subtitles (.SRT)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">SubRip</span>
+                    </button>
+                    <button
+                      onClick={() => handleExport('vtt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">WebVTT (.VTT)</span>
+                      <span className="text-[10px] font-mono-time text-[#888888]">HTML5</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="py-1">
-                  <button
-                    onClick={() => handleExport('formatted')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">With Timestamps (.TXT)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">Formatted</span>
-                  </button>
-                  <button
-                    onClick={() => handleExport('txt')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">Plain Text (.TXT)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">Raw</span>
-                  </button>
-                  <button
-                    onClick={() => handleExport('csv')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">Spreadsheet (.CSV)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">Table</span>
-                  </button>
-                  <button
-                    onClick={() => handleExport('json')}
-                    className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#FAFAFA] flex items-center justify-between cursor-pointer"
-                  >
-                    <span className="font-medium">Full Data (.JSON)</span>
-                    <span className="text-[10px] font-mono-time text-[#888888]">Data</span>
-                  </button>
+
+                {/* 3. TRANSLATED CONTENT */}
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999] bg-[#FAFAFA] flex items-center justify-between">
+                    <span>Translated Content</span>
+                    {activeCaptionLanguage !== 'source' && (
+                      <span className="text-[#111111] font-bold font-sans lowercase text-[10px]">
+                        {activeCaptionLanguage}
+                      </span>
+                    )}
+                  </div>
+                  <div className="py-1">
+                    <button
+                      onClick={() => handleExport('trans_txt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Translated Transcript (.TXT)</span>
+                      <Globe className="w-3 h-3 text-[#888888]" />
+                    </button>
+                    <button
+                      onClick={() => handleExport('trans_srt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Translated SRT (.SRT)</span>
+                      <Globe className="w-3 h-3 text-[#888888]" />
+                    </button>
+                    <button
+                      onClick={() => handleExport('trans_vtt')}
+                      className="w-full px-3 py-1.5 text-left text-[#111111] hover:bg-[#F5F5F5] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="font-medium">Translated WebVTT (.VTT)</span>
+                      <Globe className="w-3 h-3 text-[#888888]" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -322,6 +437,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Toast Feedback Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-2.5 bg-[#111111] text-white rounded-lg shadow-xl text-xs animate-in fade-in slide-in-from-bottom-2 duration-200">
+          {toastMessage.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          )}
+          <span className="font-medium">{toastMessage.text}</span>
+        </div>
+      )}
     </header>
   );
 };

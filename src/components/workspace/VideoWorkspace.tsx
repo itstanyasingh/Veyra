@@ -42,7 +42,16 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
   const activeSubtitles = React.useMemo(() => {
     if (!project) return [];
     if (activeCaptionLanguage === 'source') {
-      return project.subtitles || [];
+      if (project.subtitles && project.subtitles.length > 0) {
+        return project.subtitles;
+      }
+      return (project.transcript || []).map((seg, idx) => ({
+        id: seg.id || `sub_${idx}`,
+        index: idx + 1,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        text: seg.text,
+      }));
     }
     const trans = project.translations?.[activeCaptionLanguage];
     if (trans && Array.isArray(trans)) {
@@ -54,8 +63,17 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
         text: seg.text,
       }));
     }
-    return project.subtitles || [];
-  }, [project?.subtitles, project?.translations, activeCaptionLanguage]);
+    if (project.subtitles && project.subtitles.length > 0) {
+      return project.subtitles;
+    }
+    return (project.transcript || []).map((seg, idx) => ({
+      id: seg.id || `sub_${idx}`,
+      index: idx + 1,
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      text: seg.text,
+    }));
+  }, [project?.subtitles, project?.transcript, project?.translations, activeCaptionLanguage]);
 
   // Modals
   const [isRenameOpen, setIsRenameOpen] = useState<boolean>(false);

@@ -17,7 +17,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { RenameProjectModal } from './RenameProjectModal';
 import { getStoredProjects, deleteProject, updateProject } from '../../services/projectStorage';
 import { formatBytes, formatDuration, formatDate } from '../../utils/formatters';
-import { generateSRT, generateVTT, triggerFileDownload } from '../../utils/exportUtils';
+import { generateSRT, generateVTT, triggerFileDownload, sanitizeFileName } from '../../utils/exportUtils';
 import { Project } from '../../types';
 
 interface DashboardPageProps {
@@ -65,9 +65,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   const handleQuickExportSRT = (e: React.MouseEvent, p: Project) => {
     e.stopPropagation();
-    const cues = p.subtitles || p.transcript || [];
+    const cues = p.subtitles && p.subtitles.length > 0 ? p.subtitles : p.transcript || [];
     const srt = generateSRT(cues, p.speakers);
-    triggerFileDownload(srt, `${p.name.replace(/\s+/g, '_')}.srt`, 'text/plain');
+    triggerFileDownload(srt, `${sanitizeFileName(p.name)}.srt`, 'text/plain');
   };
 
   // Filter & Sort
