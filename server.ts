@@ -5,9 +5,18 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
+import rateLimit from 'express-rate-limit';
 import { isYouTubeUrl, extractYouTubeVideoId, normalizeYouTubeUrl } from './server/youtube';
 
 dotenv.config();
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
 
 function parseTimestampToSeconds(ts: string | number | undefined): number {
   if (typeof ts === 'number') return Math.max(0, ts);
@@ -157,6 +166,9 @@ async function startServer() {
   app.use(express.json({ limit: '60mb' }));
   app.use(express.urlencoded({ extended: true, limit: '60mb' }));
 
+  // Apply rate limiting to all /api/ endpoints
+  app.use('/api/', apiLimiter);
+
   // 1. Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', hasGeminiKey: !!process.env.GEMINI_API_KEY });
@@ -181,7 +193,12 @@ ${contextHint ? `Context hint: ${contextHint}` : ''}
 
 CRITICAL REQUIREMENTS:
 1. Transcribe the spoken dialogue verbatim and accurately.
-2. Diarize distinct speakers (e.g., "Speaker 1", "Speaker 2", or actual names if stated in dialogue).
+2. Perform authentic speaker diarization:
+   - Identify distinct speakers based strictly on audible voice pitch, timbre, and conversational turns.
+   - If only one person speaks in the audio, return a single speaker: [{"id": "spk_1", "name": "Speaker 1"}].
+   - If multiple distinct people speak (interviews, podcasts, meetings), return distinct speakers ("spk_1", "spk_2", etc.) labeled "Speaker 1", "Speaker 2", etc. (or actual real names if clearly stated/addressed in dialogue).
+   - Maintain strict consistency: assign every segment to the exact same speaker ID throughout the entire recording.
+   - Do NOT invent fake speakers or alternate speakers randomly if there is only one speaker.
 3. Provide realistic start and end timestamps (in seconds) for each segment. Segment duration should normally be 4-15 seconds per segment.
 4. Output structured chapters with timestamps.
 5. Provide a clear executive overview summary, 3-6 key takeaways, and actionable follow-ups.
@@ -455,16 +472,57 @@ Output strictly valid JSON with this exact schema:
                   let curText = '';
                   let segIdx = 1;
 
+                  const speakerNameToId = new Map<string, string>();
+                  speakerNameToId.set(channelName, 'spk_1');
+                  let nextSpkNum = 2;
+
                   for (let i = 0; i < lines.length; i++) {
                     const line = lines[i].trim();
                     if (line.includes('-->')) {
                       if (curText) {
+                        // Check for voice tags in curText like <v Speaker Name> or >> Speaker:
+                        let speakerId = 'spk_1';
+                        let cleanedText = curText;
+
+                        const vTagMatch = curText.match(/<v\s+([^>]+)>(.*)/i);
+                        const arrowMatch = curText.match(/^>>\s*([^:]+):\s*(.*)/);
+                        const bracketMatch = curText.match(/^\[([^\]]+)\]:\s*(.*)/);
+
+                        if (vTagMatch) {
+                          const spkName = vTagMatch[1].trim();
+                          cleanedText = vTagMatch[2];
+                          if (!speakerNameToId.has(spkName)) {
+                            const newId = `spk_${nextSpkNum++}`;
+                            speakerNameToId.set(spkName, newId);
+                            speakersList.push({ id: newId, name: spkName });
+                          }
+                          speakerId = speakerNameToId.get(spkName)!;
+                        } else if (arrowMatch) {
+                          const spkName = arrowMatch[1].trim();
+                          cleanedText = arrowMatch[2];
+                          if (!speakerNameToId.has(spkName)) {
+                            const newId = `spk_${nextSpkNum++}`;
+                            speakerNameToId.set(spkName, newId);
+                            speakersList.push({ id: newId, name: spkName });
+                          }
+                          speakerId = speakerNameToId.get(spkName)!;
+                        } else if (bracketMatch) {
+                          const spkName = bracketMatch[1].trim();
+                          cleanedText = bracketMatch[2];
+                          if (!speakerNameToId.has(spkName)) {
+                            const newId = `spk_${nextSpkNum++}`;
+                            speakerNameToId.set(spkName, newId);
+                            speakersList.push({ id: newId, name: spkName });
+                          }
+                          speakerId = speakerNameToId.get(spkName)!;
+                        }
+
                         transcriptSegments.push({
                           id: `seg_${segIdx}`,
-                          speakerId: 'spk_1',
+                          speakerId,
                           startTime: curStart,
                           endTime: curEnd,
-                          text: curText.replace(/<[^>]*>?/gm, '').trim()
+                          text: cleanedText.replace(/<[^>]*>?/gm, '').trim()
                         });
                         segIdx++;
                         curText = '';
@@ -477,12 +535,22 @@ Output strictly valid JSON with this exact schema:
                     }
                   }
                   if (curText) {
+                    let speakerId = 'spk_1';
+                    let cleanedText = curText;
+                    const vTagMatch = curText.match(/<v\s+([^>]+)>(.*)/i);
+                    if (vTagMatch) {
+                      const spkName = vTagMatch[1].trim();
+                      cleanedText = vTagMatch[2];
+                      if (speakerNameToId.has(spkName)) {
+                        speakerId = speakerNameToId.get(spkName)!;
+                      }
+                    }
                     transcriptSegments.push({
                       id: `seg_${segIdx}`,
-                      speakerId: 'spk_1',
+                      speakerId,
                       startTime: curStart,
                       endTime: curEnd > curStart ? curEnd : curStart + 4,
-                      text: curText.replace(/<[^>]*>?/gm, '').trim()
+                      text: cleanedText.replace(/<[^>]*>?/gm, '').trim()
                     });
                   }
                 }
@@ -1080,50 +1148,190 @@ ${formattedTranscript}`;
     }
   });
 
-  // 4. Real AI Translation of Transcript & Subtitles
-  app.post('/api/ai/translate', async (req, res) => {
+  // Real AI Language Detection endpoint
+  app.post('/api/ai/detect-language', async (req, res) => {
     try {
-      const { segments, targetLanguage } = req.body;
+      const { text, segments } = req.body;
       const ai = getGeminiClient();
 
       if (!ai) {
         return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
       }
 
-      const prompt = `
-You are a professional subtitle and transcript translator.
-Translate the following transcript segments into ${targetLanguage || 'Spanish'}.
-Preserve all segment IDs, start times, and end times exactly.
-Make the translation natural, accurate, and aligned with the timing.
+      let sampleText = text;
+      if (!sampleText && Array.isArray(segments) && segments.length > 0) {
+        sampleText = segments.slice(0, 10).map((s: any) => s.text).join(' ');
+      }
 
-Input Segments:
-${JSON.stringify(segments)}
+      if (!sampleText || !sampleText.trim()) {
+        return res.status(400).json({ error: 'No text provided for language detection.' });
+      }
 
-Output strictly valid JSON with this schema:
+      const prompt = `You are an expert computational linguist and speech recognition analyzer.
+Identify the primary language of the following spoken transcript sample.
+
+TRANSCRIPT SAMPLE:
+"${sampleText.slice(0, 1500)}"
+
+Output strictly valid JSON with this exact schema:
 {
-  "translatedSegments": [
-    {
-      "id": "original_id",
-      "speakerId": "spk_1",
-      "startTime": 0.0,
-      "endTime": 5.0,
-      "text": "Translated text"
-    }
-  ]
-}
-`;
+  "language": "English",
+  "code": "en",
+  "confidence": 0.98,
+  "isRTL": false
+}`;
 
       const response = await generateContentWithRetry(ai, {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          temperature: 0.2,
+          temperature: 0.1,
         },
       });
 
-      const parsed = JSON.parse(response.text || '{}');
-      return res.json({ translatedSegments: parsed.translatedSegments || [] });
+      const rawText = response.text || '{}';
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(cleanJson);
+
+      return res.json(parsedData);
+    } catch (err: any) {
+      console.error('AI Language Detection error:', err);
+      return res.status(500).json({ error: err.message || 'Error detecting language.' });
+    }
+  });
+
+  // 4. Real Multilingual AI Translation of Transcript & Subtitles
+  app.post('/api/ai/translate', async (req, res) => {
+    try {
+      const { segments, sourceLanguage, targetLanguage, projectName } = req.body;
+      const ai = getGeminiClient();
+
+      if (!ai) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      if (!segments || !Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: 'No transcript segments provided for translation.' });
+      }
+
+      if (!targetLanguage || typeof targetLanguage !== 'string') {
+        return res.status(400).json({ error: 'Target language must be specified.' });
+      }
+
+      const resolvedSource = sourceLanguage && sourceLanguage !== 'auto' && sourceLanguage !== 'Auto Detect'
+        ? sourceLanguage.trim()
+        : 'Auto Detect';
+
+      if (resolvedSource.toLowerCase() === targetLanguage.toLowerCase()) {
+        return res.status(400).json({
+          error: `Source and target languages are the same (${targetLanguage}). Please select a different target language.`
+        });
+      }
+
+      // Safe Chunking for long transcripts to guarantee zero dropped segments and zero truncation
+      const BATCH_SIZE = 25;
+      const batches: any[][] = [];
+      for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+        batches.push(segments.slice(i, i + BATCH_SIZE));
+      }
+
+      let detectedSourceLanguage = resolvedSource !== 'Auto Detect' ? resolvedSource : '';
+      const allTranslatedSegments: any[] = [];
+
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+
+        // Format compact input for the AI model
+        const inputItems = batch.map((seg, idx) => ({
+          idx: idx + 1,
+          id: seg.id || `seg_${batchIdx * BATCH_SIZE + idx}`,
+          text: seg.text || '',
+        }));
+
+        const prompt = `You are Veyra's professional multilingual video translator and subtitle localization engine.
+Translate the following video transcript segments into ${targetLanguage}.
+${resolvedSource !== 'Auto Detect' ? `Source language is ${resolvedSource}.` : 'Auto-detect the source language and translate naturally.'}
+
+CRITICAL RULES:
+1. Provide natural, idiomatic, and culturally accurate translation in ${targetLanguage}.
+2. Retain original tone, formality, and technical meaning.
+3. Keep translated lines concise and rhythmically aligned with spoken timing.
+4. Output EXACTLY ${batch.length} translated items matching the input items 1-to-1 in the exact same order.
+5. NEVER merge, skip, omit, or concatenate segments.
+6. Preserve full Unicode characters (UTF-8) including non-Latin scripts (e.g., Devanagari, Arabic, CJK, Cyrillic).
+
+Input Segments to translate:
+${JSON.stringify(inputItems, null, 2)}
+
+Output strictly valid JSON with this exact schema:
+{
+  "detectedSourceLanguage": "English",
+  "translations": [
+    {
+      "idx": 1,
+      "id": "${inputItems[0]?.id || 'seg_0'}",
+      "translatedText": "Translated text here"
+    }
+  ]
+}`;
+
+        const response = await generateContentWithRetry(ai, {
+          model: 'gemini-3.7-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.15,
+          },
+        });
+
+        const rawText = response.text || '{}';
+        const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+
+        if (!detectedSourceLanguage && parsed.detectedSourceLanguage) {
+          detectedSourceLanguage = parsed.detectedSourceLanguage;
+        }
+
+        const translationsList = parsed.translations || parsed.translatedSegments || [];
+        const translationMapById = new Map<string, string>();
+        const translationListByIndex: string[] = [];
+
+        translationsList.forEach((item: any, i: number) => {
+          const txt = item.translatedText || item.text || '';
+          if (item.id) {
+            translationMapById.set(item.id, txt);
+          }
+          translationListByIndex[i] = txt;
+        });
+
+        // Strictly align each translated segment with the original segment's metadata
+        const alignedBatch = batch.map((origSeg, idx) => {
+          let translatedText = translationMapById.get(origSeg.id) || translationListByIndex[idx] || '';
+          if (!translatedText || !translatedText.trim()) {
+            // Fallback to original text if missing
+            translatedText = origSeg.text;
+          }
+
+          return {
+            id: origSeg.id,
+            speakerId: origSeg.speakerId || 'spk_1',
+            startTime: origSeg.startTime,
+            endTime: origSeg.endTime,
+            text: translatedText.trim(),
+            originalText: origSeg.text,
+          };
+        });
+
+        allTranslatedSegments.push(...alignedBatch);
+      }
+
+      return res.json({
+        translatedSegments: allTranslatedSegments,
+        detectedSourceLanguage: detectedSourceLanguage || (resolvedSource !== 'Auto Detect' ? resolvedSource : 'English'),
+        targetLanguage,
+        totalSegments: allTranslatedSegments.length,
+      });
     } catch (err: any) {
       console.error('AI Translate API error:', err);
       return res.status(500).json({ error: err.message || 'Error translating transcript.' });
@@ -1183,6 +1391,180 @@ Output strictly valid JSON matching this schema:
     } catch (err: any) {
       console.error('AI Study Quiz API error:', err);
       return res.status(500).json({ error: err.message || 'Failed to generate study materials.' });
+    }
+  });
+
+  // 5b. Real AI Semantic & Conceptual Search
+  app.post('/api/ai/semantic-search', async (req, res) => {
+    try {
+      const { segments, query, projectName } = req.body;
+      const ai = getGeminiClient();
+
+      if (!ai) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      if (!query || typeof query !== 'string' || !query.trim()) {
+        return res.status(400).json({ error: 'Search query is required.' });
+      }
+
+      if (!segments || !Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: 'No transcript segments provided.' });
+      }
+
+      const formattedTranscript = segments
+        .map((s: any) => `[ID: ${s.id}] [Time: ${s.startTime}s - ${s.endTime}s] [Speaker: ${s.speakerId || 'spk'}]: ${s.text}`)
+        .join('\n');
+
+      const prompt = `You are Veyra's professional semantic search and video intelligence engine.
+Analyze the following transcript for "${projectName || 'the video'}" to find all segments that are semantically relevant to the user's conceptual search query.
+
+USER QUERY:
+"${query.trim()}"
+
+CRITICAL REQUIREMENTS:
+1. ONLY return segment IDs that actually exist in the provided transcript.
+2. Evaluate semantic relatedness (e.g. if searching for "cost", match segments discussing fees, prices, subscriptions, or budgets).
+3. Compute an authentic relevance score between 1 and 100 for each match based on semantic proximity.
+4. Provide a brief explanation of why the segment matches the concept.
+5. Extract 2-4 related conceptual tags present in the dialogue.
+
+Output strictly valid JSON with this exact schema:
+{
+  "matches": [
+    {
+      "segmentId": "exact_segment_id_from_transcript",
+      "relevance": 90,
+      "matchedConcept": "Brief reason/explanation of semantic relevance",
+      "highlightWords": ["words", "to", "highlight"]
+    }
+  ],
+  "relatedConcepts": [
+    "Related concept 1",
+    "Related concept 2"
+  ]
+}
+
+TRANSCRIPT:
+${formattedTranscript}`;
+
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      const validSegmentIds = new Set(segments.map((s: any) => s.id));
+      const verifiedMatches = (parsed.matches || []).filter((m: any) => validSegmentIds.has(m.segmentId));
+
+      return res.json({
+        matches: verifiedMatches,
+        relatedConcepts: parsed.relatedConcepts || [],
+      });
+    } catch (err: any) {
+      console.error('Semantic search API error:', err);
+      return res.status(500).json({ error: err.message || 'Failed to perform semantic search.' });
+    }
+  });
+
+  // Real AI Document / Content Generation Workspace Endpoint
+  app.post('/api/ai/generate-document', async (req, res) => {
+    try {
+      const { segments, docType, projectName, duration } = req.body;
+      const ai = getGeminiClient();
+
+      if (!ai) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      if (!segments || !Array.isArray(segments) || segments.length === 0) {
+        return res.status(400).json({ error: 'No transcript segments provided for document generation.' });
+      }
+
+      const formattedTranscript = segments
+        .map((s: any) => `[ID: ${s.id}] [Time: ${typeof s.startTime === 'number' ? s.startTime.toFixed(1) : s.startTime}s] ${s.speakerId || 'Speaker'}: ${s.text}`)
+        .join('\n');
+
+      let docGuidelines = '';
+      if (docType === 'summary') {
+        docGuidelines = 'Create a highly polished Executive Summary. It must contain an overview of the video discussion, main themes, and key conclusions.';
+      } else if (docType === 'detailed_notes') {
+        docGuidelines = 'Create exhaustive, comprehensive Study or Professional Detailed Notes. Go deep into every single point, argument, and technical fact mentioned, organizing them with hierarchical headings, bullet points, and definitions.';
+      } else if (docType === 'meeting_minutes') {
+        docGuidelines = 'Create standard, professional Meeting Minutes. This must include: 1. Date/Participants (speakers identified in the transcript), 2. Discussion Agenda & Notes, 3. Key Decisions, 4. Action Items/Next Steps with Owners if specified.';
+      } else if (docType === 'study_notes') {
+        docGuidelines = 'Create comprehensive Study Notes. Define core concepts, compile logical breakdowns, list key definitions, formulas or technologies, and outline explanations suitable for learning or reference.';
+      } else if (docType === 'blog_draft') {
+        docGuidelines = 'Create a structured, engaging, and publishable Blog Post Draft. Write a catchy title, a hook introduction, several well-titled body sections, a call-to-action or conclusion. Make the tone friendly, authoritative, and readable.';
+      } else if (docType === 'article_outline') {
+        docGuidelines = 'Create an Article Outline. Establish the title, thesis statement, primary section headings, sub-headings, key themes to expand in each, and recommended references from the text.';
+      } else if (docType === 'executive_brief') {
+        docGuidelines = 'Create an Executive Brief for leadership. Focus on strategic goals, major business or technical takeaways, key opportunities/challenges identified, and high-level recommendations.';
+      } else if (docType === 'action_items') {
+        docGuidelines = 'Create an Action Items & Decisional Log. Focus entirely on tasks, decisions, follow-ups, owners, and implied/explicit deadlines mentioned in the transcript.';
+      } else if (docType === 'faq') {
+        docGuidelines = 'Create a comprehensive FAQ (Frequently Asked Questions) list. Formulate 5 to 10 logical questions that a viewer would ask, and write detailed answers grounded strictly in what was spoken.';
+      } else if (docType === 'key_takeaways') {
+        docGuidelines = 'Create a Key Takeaways sheet. Focus on the most important, high-impact lessons, takeaways, or revelations from the video.';
+      } else if (docType === 'interview_notes') {
+        docGuidelines = 'Create structured Interview/Dialogue Notes. Outline the questions asked or key topics introduced by the host/interviewer and synthesize the exact responses, opinions, and expertise provided by the guest/candidate.';
+      } else if (docType === 'revision_notes') {
+        docGuidelines = 'Create condensed Revision/Cram Notes. Condense the entire discussion into ultra-compact, high-density study points, checklists, and quick-recall definitions.';
+      } else {
+        docGuidelines = 'Create a highly professional, well-structured document based on the transcript.';
+      }
+
+      const prompt = `You are VEYRA's senior transcript analyst and document synthesis system.
+Your job is to transform raw video transcripts into a world-class, professionally formatted document of type: "${docType.replace('_', ' ').toUpperCase()}".
+
+CRITICAL QUALITY DIRECTIVES:
+1. GROUNDED ON TRUTH: Every single fact, name, date, time, and claim MUST be grounded strictly in the transcript. NEVER hallucinate or invent outside information.
+2. HANDLING INSUFFICIENT INFORMATION: If the transcript is extremely brief (e.g. under 1-2 minutes) or lacks sufficient depth/substance to fully compile a complete document of the requested type (for example, generating comprehensive "Meeting Minutes" from a simple greeting), you MUST set "isInsufficient": true, and write a polite warning disclaimer at the beginning of the content explaining that the source material is limited. Then, compile a truthful synthesis of whatever limited points *were* discussed, without making anything up.
+3. SOURCE TRACEABILITY: You must segment your generated document into logical chronological sections. For EACH section, specify the 'startTime' in seconds (must correspond to the startTime of the earliest segment used in that section) and a list of 'segmentIds' (from the provided transcript) that directly map to that section.
+4. INLINE TIMESTAMP CITATIONS: Incorporate clickable timestamp citations in brackets like "[01:23]" at the end of key sentences or paragraphs. The times MUST correspond to the actual segment timestamps from the transcript.
+
+Input Transcript:
+${formattedTranscript}
+
+Output strictly valid JSON matching this exact schema:
+{
+  "title": "A highly specific, refined document title",
+  "content": "Full markdown-formatted document text. Utilize bold, italics, hierarchical headings, bullet points, checklists, and tables where appropriate. ALWAYS include bracketed inline timestamp citations like [02:15] to support source traceability.",
+  "isInsufficient": false,
+  "sections": [
+    {
+      "id": "sec_1",
+      "title": "Section or Heading Title",
+      "text": "Detailed summary or key points of this section",
+      "startTime": 0.0,
+      "segmentIds": ["seg_1", "seg_2"]
+    }
+  ]
+}
+
+Make sure JSON formatting is pristine and valid. Only output valid JSON.`;
+
+      const response = await generateContentWithRetry(ai, {
+        model: 'gemini-3.7-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      });
+
+      const rawText = response.text || '{}';
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(cleanJson);
+
+      return res.json(parsedData);
+    } catch (err: any) {
+      console.error('AI Generate Document API error:', err);
+      return res.status(500).json({ error: err.message || 'Error generating structured document.' });
     }
   });
 

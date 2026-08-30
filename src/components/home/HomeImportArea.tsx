@@ -15,6 +15,7 @@ import { extractMediaMetadata } from '../../utils/mediaUtils';
 import { saveMedia } from '../../services/mediaStorage';
 import { createProject } from '../../services/projectStorage';
 import { runMediaProcessingPipeline, transcribeMediaUrl, ProcessingProgressState } from '../../services/transcriptionService';
+import { calculateTranscriptHash } from '../../services/aiAnalysisService';
 import { ProcessingView } from './ProcessingView';
 import { Project, MediaType } from '../../types';
 import { formatBytes } from '../../utils/formatters';
@@ -134,6 +135,8 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         }
       );
 
+      const initialHash = calculateTranscriptHash(transcript);
+
       // Create and persist project
       const newProject: Project = {
         id: projectId,
@@ -155,6 +158,9 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         transcript,
         subtitles,
         summary,
+        transcriptHash: initialHash,
+        subtitlesTranscriptHash: initialHash,
+        subtitlesEdited: false,
       };
 
       createProject(newProject);
@@ -192,6 +198,8 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         setProcessingProgress(progress);
       });
 
+      const initialHash = calculateTranscriptHash(result.transcript);
+
       const projectId = `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const finalTitle = result.fileName || cleanName;
       const newProject: Project = {
@@ -214,6 +222,9 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
         transcript: result.transcript,
         subtitles: result.subtitles,
         summary: result.summary,
+        transcriptHash: initialHash,
+        subtitlesTranscriptHash: initialHash,
+        subtitlesEdited: false,
       };
 
       createProject(newProject);

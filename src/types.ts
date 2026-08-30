@@ -18,6 +18,7 @@ export type MediaType = 'video' | 'audio';
 export interface Speaker {
   id: string;
   name: string;
+  color?: string;
 }
 
 export interface TranscriptSegment {
@@ -148,6 +149,16 @@ export interface AIAnalysisResults {
 
 export type SourceType = 'upload' | 'youtube';
 
+export interface TranslationMetadata {
+  targetLanguage: string;
+  sourceLanguage?: string;
+  transcriptHash?: string;
+  createdAt: string;
+  updatedAt: string;
+  segmentCount: number;
+  isEdited?: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -172,9 +183,20 @@ export interface Project {
   transcript?: TranscriptSegment[];
   subtitles?: SubtitleCue[];
   translations?: Record<string, TranscriptSegment[]>;
+  translationMetadata?: Record<string, TranslationMetadata>;
   notes?: ProjectNote[];
   highlights?: ProjectHighlight[];
   summary?: ProjectSummary;
   aiAnalysisResults?: AIAnalysisResults;
   transcriptHash?: string;
+  subtitlesTranscriptHash?: string;
+  subtitlesEdited?: boolean;
+  generatedDocs?: Record<string, {
+    title: string;
+    content: string;
+    isInsufficient: boolean;
+    sections: Array<{ id: string; title: string; text: string; startTime: number; segmentIds: string[] }>;
+    transcriptHash: string;
+    updatedAt: string;
+  }>;
 }

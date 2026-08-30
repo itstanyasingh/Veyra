@@ -41,8 +41,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {cancelLabel}
           </Button>
           <Button
-            variant={isDestructive ? 'primary' : 'primary'}
+            variant="primary"
             size="sm"
+            className={isDestructive ? "bg-[#DC2626] border-[#DC2626] hover:bg-[#B91C1C] hover:border-[#B91C1C] focus:ring-[#DC2626]" : ""}
             onClick={() => {
               onConfirm();
               onClose();

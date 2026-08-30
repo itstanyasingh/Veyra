@@ -55,6 +55,7 @@ export interface AnalyzeTranscriptParams {
   };
   projectName?: string;
   duration?: number;
+  speakers?: { id: string; name: string }[];
 }
 
 /**
@@ -67,14 +68,18 @@ export async function analyzeTranscriptTask({
   options,
   projectName,
   duration,
+  speakers,
 }: AnalyzeTranscriptParams): Promise<any> {
   if (!transcript || transcript.length === 0) {
     throw new Error('Transcript is empty. Transcribe a video or audio file first.');
   }
 
+  const speakerMap = new Map((speakers || []).map((s) => [s.id, s.name]));
+
   const cleanSegments = transcript.map((s) => ({
     id: s.id,
-    speakerId: s.speakerId || 'Speaker',
+    speakerId: s.speakerId || 'spk_1',
+    speakerName: speakerMap.get(s.speakerId) || s.speakerId || 'Speaker',
     startTime: typeof s.startTime === 'number' ? s.startTime : parseFloat(s.startTime as any) || 0,
     endTime: typeof s.endTime === 'number' ? s.endTime : parseFloat(s.endTime as any) || 0,
     text: s.text || '',
