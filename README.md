@@ -78,20 +78,24 @@ The server attempts accessible caption or audio retrieval and processes retrieve
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    U[User] --> F[React + Vite Frontend]
-    F --> A[Express API]
-    A --> T[/api/transcribe]
-    A --> Y[/api/transcribe-url]
-    T --> G[Google Gemini]
-    Y --> M[YouTube / Public Media Retrieval]
-    M --> G
-    A --> Q[AI Intelligence Endpoints]
-    Q --> G
-    G --> R[Structured Results]
-    R --> F
-    F --> E[Search / Editing / Translation / Export]
+```
+User ──► React + Vite Frontend ──► Express API Backend
+                                        │
+             ┌──────────────────────────┼──────────────────────────┐
+             ▼                          ▼                          ▼
+     /api/transcribe            /api/transcribe-url            /api/ai/*
+             │                          │                          │
+             │                 YouTube / Web Media                 │
+             │                          │                          │
+             └──────────────────────────┼──────────────────────────┘
+                                        ▼
+                                  Google Gemini
+                                        │
+                                        ▼
+                                Structured Results
+                                        │
+                                        ▼
+                   Search / Edit / Translate / Subtitles / Export
 ```
 
 ## Tech Stack
