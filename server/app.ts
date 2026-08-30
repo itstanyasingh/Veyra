@@ -2,8 +2,13 @@ import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
-import { fetchTranscript } from 'youtube-transcript-plus';
-import { isYouTubeUrl, extractYouTubeVideoId } from './youtube.js';
+import {
+  isYouTubeUrl,
+  extractYouTubeVideoId,
+  validateAndExtractYouTubeId,
+  getYouTubeTranscript,
+  groupCaptionsIntoSegments,
+} from './youtube.js';
 
 dotenv.config();
 
@@ -405,93 +410,125 @@ app.post('/api/transcribe-url', async (req, res) => {
 
     // Handle YouTube Video URLs
     if (isYouTubeUrl(url)) {
-      const videoId = extractYouTubeVideoId(url);
-      if (!videoId) {
-        return res.status(400).json({ error: 'Please enter a valid YouTube video URL.' });
-      }
-      const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-      // 1. Fetch video metadata using YouTube oEmbed
-      let videoTitle = projectName || 'YouTube Video';
-      let channelName = 'YouTube Creator';
-      try {
-        const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`, {
-          signal: AbortSignal.timeout(6000),
-        });
-        if (oembedResponse.ok) {
-          const oembedData = await oembedResponse.json() as any;
-          if (oembedData && oembedData.title) {
-            videoTitle = oembedData.title;
-          }
-          if (oembedData && oembedData.author_name) {
-            channelName = oembedData.author_name;
-          }
-        }
-      } catch (oembedErr) {
-        console.warn('[Veyra YouTube] Failed to fetch oembed metadata:', oembedErr);
+      const validation = validateAndExtractYouTubeId(url);
+      if (!validation.valid || !validation.videoId) {
+        return res.status(400).json({ error: validation.error || 'Please enter a valid YouTube video URL.' });
       }
 
-      // 2. Fetch real closed captions using youtube-transcript-plus
-      let rawCaptions: any[] = [];
-      try {
-        rawCaptions = await fetchTranscript(videoId);
-      } catch (ytFetchErr: any) {
-        console.warn('[Veyra YouTube] Primary fetchTranscript failed, attempting language fallback:', ytFetchErr?.message);
-        try {
-          rawCaptions = await fetchTranscript(videoId, { lang: 'en' });
-        } catch {
-          // If no transcript available
-        }
-      }
+      const videoId = validation.videoId;
+      const canonicalUrl = validation.canonicalUrl || `https://www.youtube.com/watch?v=${videoId}`;
 
-      if (!rawCaptions || rawCaptions.length === 0) {
+      // Ingest YouTube Video via multi-tier fallback pipeline
+      const ytResult = await getYouTubeTranscript(videoId);
+
+      if (!ytResult.success) {
         return res.status(400).json({
-          error: `No accessible captions or transcripts could be retrieved for YouTube video "${videoTitle}". The video may be private, age-restricted, or have closed captions disabled by the creator. To transcribe this video, please upload the audio or video file directly.`,
+          error: ytResult.errorMessage || 'No accessible captions or audio streams could be retrieved for this YouTube video. Please download and upload the media file directly.',
         });
       }
 
-      // Group caption fragments into natural speech segments (~6-12 seconds)
-      const transcriptSegments: any[] = [];
-      let curText = '';
-      let curStart = 0;
-      let curEnd = 0;
-      let segIdx = 1;
+      const videoTitle = ytResult.videoTitle || projectName || 'YouTube Video';
+      const channelName = ytResult.channelName || 'YouTube Creator';
 
-      for (const item of rawCaptions) {
-        const cleanedItemText = decodeHtmlEntities(item.text).replace(/\n+/g, ' ').trim();
-        if (!cleanedItemText) continue;
-
-        if (!curText) {
-          curStart = Math.round((Number(item.offset) || 0) * 100) / 100;
-          curEnd = Math.round(((Number(item.offset) || 0) + (Number(item.duration) || 3)) * 100) / 100;
-          curText = cleanedItemText;
-        } else {
-          curText += ' ' + cleanedItemText;
-          curEnd = Math.round(((Number(item.offset) || 0) + (Number(item.duration) || 3)) * 100) / 100;
-        }
-
-        const isPunctuationEnd = cleanedItemText.endsWith('.') || cleanedItemText.endsWith('!') || cleanedItemText.endsWith('?');
-        if (curEnd - curStart >= 7 || isPunctuationEnd) {
-          transcriptSegments.push({
-            id: `seg_${segIdx++}`,
-            speakerId: 'spk_1',
-            startTime: curStart,
-            endTime: Math.max(curEnd, curStart + 2),
-            text: curText.trim(),
+      // If retrieved via direct audio stream fallback
+      if (ytResult.sourceMethod === 'audio_stream' && ytResult.audioBuffer) {
+        if (!ai) {
+          return res.status(500).json({
+            error: 'GEMINI_API_KEY is missing. Please configure it in your environment settings.',
           });
-          curText = '';
         }
-      }
 
-      if (curText) {
-        transcriptSegments.push({
-          id: `seg_${segIdx++}`,
-          speakerId: 'spk_1',
-          startTime: curStart,
-          endTime: Math.max(curEnd, curStart + 2),
-          text: curText.trim(),
+        console.log(`[Veyra YouTube] Transcribing audio stream via Gemini for "${videoTitle}"...`);
+        const base64Audio = ytResult.audioBuffer.toString('base64');
+        const mimeType = ytResult.audioMimeType || 'audio/mp4';
+
+        const prompt = `You are an expert speech recognition and audio intelligence engine.
+Transcribe and analyze this authentic audio track from YouTube video "${videoTitle}" by "${channelName}".
+
+Perform strict speaker diarization and time-synchronized transcription.
+Format timestamps as integer or float seconds (e.g. 0.0, 5.2, 12.8).
+
+Provide structured JSON:
+{
+  "speakers": [
+    { "id": "spk_1", "name": "${channelName}" }
+  ],
+  "transcript": [
+    {
+      "id": "seg_1",
+      "speakerId": "spk_1",
+      "startTime": 0.0,
+      "endTime": 5.2,
+      "text": "Exact spoken words..."
+    }
+  ],
+  "summary": {
+    "overview": "Overview...",
+    "keyPoints": ["Point 1", "Point 2"],
+    "chapters": [
+      { "title": "Chapter 1", "startTime": 0.0, "endTime": 30.0, "summary": "Summary..." }
+    ],
+    "actionItems": []
+  }
+}`;
+
+        const response = await generateContentWithRetry(ai, {
+          model: 'gemini-3.7-flash',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { inlineData: { mimeType, data: base64Audio } },
+                { text: prompt },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+          },
+        });
+
+        const parsedData = JSON.parse(response.text || '{}');
+        const rawSegments = Array.isArray(parsedData.transcript) ? parsedData.transcript : [];
+        const transcript = rawSegments.map((seg: any, idx: number) => ({
+          id: `seg_${idx + 1}`,
+          speakerId: seg.speakerId || 'spk_1',
+          startTime: parseTimestampToSeconds(seg.startTime),
+          endTime: parseTimestampToSeconds(seg.endTime),
+          text: (seg.text || '').trim(),
+        }));
+
+        const subtitles = transcript.map((seg: any, idx: number) => ({
+          id: `sub_${idx + 1}`,
+          index: idx + 1,
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          text: seg.text,
+        }));
+
+        const duration = transcript.length > 0 ? Math.ceil(transcript[transcript.length - 1].endTime) : 180;
+
+        return res.json({
+          fileName: videoTitle,
+          mediaUrl: canonicalUrl,
+          duration,
+          fileSize: ytResult.audioBuffer.byteLength,
+          speakers: parsedData.speakers || [{ id: 'spk_1', name: channelName }],
+          transcript,
+          subtitles,
+          summary: parsedData.summary || {
+            overview: `Transcribed audio from YouTube: "${videoTitle}" by ${channelName}.`,
+            keyPoints: ['Accurately transcribed spoken audio stream.'],
+            chapters: [{ title: 'Full Audio', startTime: 0, endTime: duration, summary: 'Full discussion' }],
+            actionItems: [],
+          },
         });
       }
+
+      // If retrieved via caption tracks (standard or fallback)
+      const rawCues = ytResult.segments || [];
+      const transcriptSegments = groupCaptionsIntoSegments(rawCues, 'spk_1');
 
       const subtitles = transcriptSegments.map((seg, idx) => ({
         id: `sub_${idx + 1}`,
@@ -504,7 +541,7 @@ app.post('/api/transcribe-url', async (req, res) => {
       const lastSegment = transcriptSegments[transcriptSegments.length - 1];
       const estimatedDuration = lastSegment ? Math.ceil(lastSegment.endTime) : 180;
 
-      // 3. Generate grounded summary using Gemini on the real transcript if available
+      // Generate grounded summary using Gemini on the real transcript if available
       let summaryData: any = {
         overview: `Transcribed from YouTube: "${videoTitle}" by ${channelName}.`,
         keyPoints: ['Accurately captured authentic spoken dialogue from video.'],
@@ -512,9 +549,9 @@ app.post('/api/transcribe-url', async (req, res) => {
         actionItems: [],
       };
 
-      if (ai) {
+      if (ai && transcriptSegments.length > 0) {
         try {
-          const sampleTranscriptText = transcriptSegments.slice(0, 40).map(s => `[${s.startTime}s] ${s.text}`).join('\n');
+          const sampleTranscriptText = transcriptSegments.slice(0, 50).map(s => `[${s.startTime}s] ${s.text}`).join('\n');
           const summaryPrompt = `You are Veyra's video intelligence engine.
 Analyze the following authentic transcript for YouTube video "${videoTitle}" by "${channelName}".
 Provide an accurate overview, 3-5 key takeaways, and structured topic chapters grounded strictly in this transcript.
