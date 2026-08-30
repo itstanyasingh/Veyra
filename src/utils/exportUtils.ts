@@ -219,6 +219,250 @@ export function generateJSON(project: Project, targetLang?: string): string {
 }
 
 /**
+ * Generate a section-customized Markdown report.
+ */
+export function generateCustomMarkdownReport(
+  project: Project,
+  sections: {
+    summary: boolean;
+    transcript: boolean;
+    meetingIntelligence: boolean;
+    researchMode: boolean;
+    studyMaterial: boolean;
+    knowledgeMap: boolean;
+    userNotes: boolean;
+  },
+  options: {
+    includeQuizAnswers?: boolean;
+    targetLang?: string;
+  }
+): string {
+  let md = `# VEYRA INTELLIGENCE REPORT\n`;
+  md += `**Project:** ${project.name}\n`;
+  md += `**File:** ${project.fileName}\n`;
+  md += `**Duration:** ${formatDuration(project.duration)}\n`;
+  md += `**Export Date:** ${new Date().toLocaleDateString()}\n`;
+  md += `--------------------------------------------------\n\n`;
+
+  if (project.meetingIntelligence?.isOutdated || project.knowledgeMap?.isOutdated) {
+    md += `> **Notice:** Some analysis modules were generated from an earlier transcript version.\n\n`;
+  }
+
+  // 1. Executive Summary
+  if (sections.summary && (project.summary || project.aiAnalysisResults?.summary)) {
+    const summaryObj = project.summary || project.aiAnalysisResults?.summary;
+    md += `## Executive Summary\n\n`;
+    if (summaryObj?.overview) {
+      md += `${summaryObj.overview}\n\n`;
+    }
+    const keyPoints = summaryObj?.keyPoints || project.aiAnalysisResults?.keyPoints?.map(k => k.description);
+    if (keyPoints && keyPoints.length > 0) {
+      md += `### Key Takeaways\n`;
+      keyPoints.forEach(kp => {
+        const text = typeof kp === 'string' ? kp : (kp as any).description || (kp as any).title;
+        md += `- ${text}\n`;
+      });
+      md += `\n`;
+    }
+  }
+
+  // 2. Meeting Intelligence
+  if (sections.meetingIntelligence && project.meetingIntelligence) {
+    const mi = project.meetingIntelligence;
+    md += `## Meeting & Decision Intelligence\n\n`;
+
+    if (mi.summary) {
+      md += `${mi.summary}\n\n`;
+    }
+
+    if (mi.decisions && mi.decisions.length > 0) {
+      md += `### Decisions (${mi.decisions.length})\n`;
+      mi.decisions.forEach((d, i) => {
+        md += `${i + 1}. **${d.text}** (Source — ${formatDuration(d.timestamp)})\n`;
+        if (d.context) md += `   > Context: ${d.context}\n`;
+      });
+      md += `\n`;
+    }
+
+    if (mi.actionItems && mi.actionItems.length > 0) {
+      md += `### Action Items (${mi.actionItems.length})\n`;
+      mi.actionItems.forEach((a, i) => {
+        const ownerStr = a.owner ? ` | Owner: ${a.owner}` : '';
+        const deadlineStr = a.deadline ? ` | Deadline: ${a.deadline}` : '';
+        md += `${i + 1}. [${a.status.toUpperCase()}] **${a.task}**${ownerStr}${deadlineStr} (Source — ${formatDuration(a.timestamp)})\n`;
+      });
+      md += `\n`;
+    }
+
+    if (mi.openQuestions && mi.openQuestions.length > 0) {
+      md += `### Open Questions (${mi.openQuestions.length})\n`;
+      mi.openQuestions.forEach((q, i) => {
+        md += `${i + 1}. [${q.status.toUpperCase()}] **${q.question}** (Source — ${formatDuration(q.timestamp)})\n`;
+      });
+      md += `\n`;
+    }
+  }
+
+  // 3. Research Mode
+  if (sections.researchMode && project.researchItems && project.researchItems.length > 0) {
+    md += `## Research Mode Investigation\n\n`;
+    project.researchItems.forEach((res, rIdx) => {
+      md += `### Research ${rIdx + 1}: ${res.title}\n`;
+      md += `**Query:** "${res.query}"\n\n`;
+      if (res.summary) md += `${res.summary}\n\n`;
+
+      if (res.findings && res.findings.length > 0) {
+        md += `#### Claims & Evidence\n`;
+        res.findings.forEach(f => {
+          const typeTag = f.claimType ? `[${f.claimType.toUpperCase()}]` : '';
+          md += `- ${typeTag} **${f.claim}** (Source — ${formatDuration(f.timestamp)})\n`;
+          if (f.excerpt) md += `  > Excerpt: "${f.excerpt}"\n`;
+          if (f.userNotes) md += `  - **My Notes:** ${f.userNotes}\n`;
+        });
+        md += `\n`;
+      }
+    });
+  }
+
+
+  // 4. Knowledge Map
+  if (sections.knowledgeMap && project.knowledgeMap && project.knowledgeMap.nodes.length > 0) {
+    md += `## Knowledge Map Topics\n\n`;
+    project.knowledgeMap.nodes.forEach((node, nIdx) => {
+      const srcTs = node.sources[0]?.timestamp || 0;
+      md += `${nIdx + 1}. **${node.name}** [${node.type.toUpperCase()}] (Source — ${formatDuration(srcTs)})\n`;
+      if (node.summary) md += `   ${node.summary}\n`;
+    });
+    md += `\n`;
+  }
+
+  // 5. Study Material
+  if (sections.studyMaterial) {
+    md += `## Study Material & Quiz\n\n`;
+    const segments = project.transcript || [];
+    const summary = project.summary || project.aiAnalysisResults?.summary;
+    const keyPoints = summary?.keyPoints || [];
+
+    if (keyPoints.length > 0) {
+      md += `### Key Concepts\n`;
+      keyPoints.forEach((kp, idx) => md += `${idx + 1}. ${kp}\n`);
+      md += `\n`;
+    }
+
+    if (segments.length > 0) {
+      md += `### Quiz Questions\n\n`;
+      md += `**Q1:** What main topic is introduced in the opening segment of "${project.name}"?\n`;
+      md += `- A) ${segments[0]?.text || 'Main topic overview'}\n`;
+      md += `- B) Unrelated off-topic summary\n`;
+      if (options.includeQuizAnswers) {
+        md += `> **Correct Answer:** A (Source — ${formatDuration(segments[0]?.startTime || 0)})\n`;
+      }
+      md += `\n`;
+    }
+  }
+
+  // 6. User Notes
+  if (sections.userNotes && ((project.notes && project.notes.length > 0) || (project.highlights && project.highlights.length > 0))) {
+    md += `## My Notes & Highlights\n\n`;
+    if (project.notes) {
+      project.notes.forEach(n => md += `- ${n.content} (${formatDuration(n.timestamp || 0)})\n`);
+    }
+    md += `\n`;
+  }
+
+
+  // 7. Transcript
+  if (sections.transcript && project.transcript && project.transcript.length > 0) {
+    md += `## Full Transcript\n\n`;
+    const speakerMap = new Map((project.speakers || []).map(s => [s.id, s.name]));
+    const segments = options.targetLang && options.targetLang !== 'source' && project.translations?.[options.targetLang]
+      ? project.translations[options.targetLang]
+      : project.transcript;
+
+    segments.forEach(seg => {
+      const spkName = speakerMap.get(seg.speakerId) || seg.speakerId || 'Speaker';
+      md += `**[${formatDuration(seg.startTime)}] ${spkName}:**\n${seg.text}\n\n`;
+    });
+  }
+
+  return md;
+}
+
+/**
+ * Generate a section-customized Plain Text report.
+ */
+export function generateCustomTXTReport(
+  project: Project,
+  sections: {
+    summary: boolean;
+    transcript: boolean;
+    meetingIntelligence: boolean;
+    researchMode: boolean;
+    studyMaterial: boolean;
+    knowledgeMap: boolean;
+    userNotes: boolean;
+  },
+  options: {
+    includeQuizAnswers?: boolean;
+    targetLang?: string;
+  }
+): string {
+  let txt = `VEYRA INTELLIGENCE REPORT\n`;
+  txt += `Project: ${project.name}\n`;
+  txt += `File: ${project.fileName}\n`;
+  txt += `Duration: ${formatDuration(project.duration)}\n`;
+  txt += `Export Date: ${new Date().toLocaleDateString()}\n`;
+  txt += `--------------------------------------------------\n\n`;
+
+  if (sections.summary && (project.summary || project.aiAnalysisResults?.summary)) {
+    const summaryObj = project.summary || project.aiAnalysisResults?.summary;
+    txt += `=== EXECUTIVE SUMMARY ===\n`;
+    if (summaryObj?.overview) txt += `${summaryObj.overview}\n\n`;
+    const keyPoints = summaryObj?.keyPoints || project.aiAnalysisResults?.keyPoints?.map(k => k.description);
+    if (keyPoints) {
+      keyPoints.forEach(kp => txt += `• ${typeof kp === 'string' ? kp : (kp as any).description}\n`);
+      txt += `\n`;
+    }
+  }
+
+  if (sections.meetingIntelligence && project.meetingIntelligence) {
+    const mi = project.meetingIntelligence;
+    txt += `=== MEETING & DECISION INTELLIGENCE ===\n`;
+    if (mi.summary) txt += `${mi.summary}\n\n`;
+    if (mi.decisions) {
+      txt += `Decisions:\n`;
+      mi.decisions.forEach((d, i) => txt += `${i + 1}. ${d.text} (Source: ${formatDuration(d.timestamp)})\n`);
+      txt += `\n`;
+    }
+    if (mi.actionItems) {
+      txt += `Action Items:\n`;
+      mi.actionItems.forEach((a, i) => txt += `${i + 1}. [${a.status}] ${a.task} (Owner: ${a.owner || 'N/A'}, Source: ${formatDuration(a.timestamp)})\n`);
+      txt += `\n`;
+    }
+  }
+
+  if (sections.researchMode && project.researchItems) {
+    txt += `=== RESEARCH MODE FINDINGS ===\n`;
+    project.researchItems.forEach((res, i) => {
+      txt += `Research #${i + 1}: ${res.title}\nQuery: "${res.query}"\n`;
+      if (res.summary) txt += `${res.summary}\n`;
+      txt += `\n`;
+    });
+  }
+
+  if (sections.transcript && project.transcript) {
+    txt += `=== FULL TRANSCRIPT ===\n`;
+    const speakerMap = new Map((project.speakers || []).map(s => [s.id, s.name]));
+    project.transcript.forEach(seg => {
+      const spkName = speakerMap.get(seg.speakerId) || seg.speakerId || 'Speaker';
+      txt += `[${formatDuration(seg.startTime)}] ${spkName}:\n${seg.text}\n\n`;
+    });
+  }
+
+  return txt;
+}
+
+/**
  * Browser-native file download helper with UTF-8 support
  */
 export function triggerFileDownload(content: string, fileName: string, mimeType: string): void {
@@ -236,3 +480,4 @@ export function triggerFileDownload(content: string, fileName: string, mimeType:
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+

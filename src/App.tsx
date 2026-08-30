@@ -9,6 +9,7 @@ import { GlobalSearchPage } from './components/search/GlobalSearchPage';
 import { StudyPage } from './components/study/StudyPage';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { ToolsHubPage } from './components/tools/ToolsHubPage';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -84,16 +85,23 @@ export default function App() {
   if (isWorkspace) {
     return (
       <div className="min-h-screen bg-[#FAFAFA] text-[#111111] selection:bg-[#111111] selection:text-white flex flex-col">
-        {renderContent()}
+        <ErrorBoundary fallbackTitle="An error occurred in the workspace.">
+          {renderContent()}
+        </ErrorBoundary>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white text-[#111111] selection:bg-[#111111] selection:text-white">
+    <div className="min-h-screen flex flex-col bg-[#FFFFFF] text-[#111111] selection:bg-[#111111] selection:text-white">
       <Navbar currentPath={currentPath} onNavigate={navigate} />
-      <div className="flex-1 flex flex-col">{renderContent()}</div>
+      <div className="flex-1 flex flex-col">
+        <ErrorBoundary fallbackTitle="An error occurred loading this page.">
+          {renderContent()}
+        </ErrorBoundary>
+      </div>
       <Footer onNavigate={navigate} />
     </div>
   );
 }
+

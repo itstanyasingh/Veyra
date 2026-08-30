@@ -13,12 +13,12 @@ export const EmptyProjects: React.FC<EmptyProjectsProps> = ({ onCreateProject })
         <Video className="w-5 h-5" />
       </div>
 
-      <h3 className="text-base sm:text-lg font-bold tracking-tight text-[#000000] mb-2">
-        NO PROJECTS YET
+      <h3 className="text-base sm:text-lg font-bold tracking-tight text-[#111827] mb-2">
+        No videos yet
       </h3>
 
-      <p className="text-xs sm:text-sm text-[#666666] max-w-sm mx-auto leading-relaxed mb-6">
-        Upload your first video to start transcribing, searching, and understanding your content.
+      <p className="text-xs sm:text-sm text-[#64748B] max-w-md mx-auto leading-relaxed mb-6">
+        Import a video or audio file to automatically generate transcripts, timecoded search, summaries, and meeting intelligence.
       </p>
 
       <Button
@@ -27,7 +27,7 @@ export const EmptyProjects: React.FC<EmptyProjectsProps> = ({ onCreateProject })
         onClick={onCreateProject}
         icon={<Plus className="w-4 h-4" />}
       >
-        Create your first project
+        Import Media
       </Button>
     </div>
   );

@@ -515,27 +515,31 @@ export const ToolsHubPage: React.FC<ToolsHubPageProps> = ({ onNavigate }) => {
         const url = urlInputEl?.value?.trim();
         if (!url) throw new Error('Please input a valid YouTube video URL.');
         
-        setProgressMessage('Extracting YouTube ID and metadata...');
+        setProgressMessage('Extracting YouTube transcript and captions...');
         setProgressPercent(40);
         
-        const response = await fetch('/api/ai/ask', {
+        const response = await fetch('/api/transcribe-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: `Parse this YouTube URL and fetch the caption transcript if available. If not, generate a solid content outline and mock description: ${url}`,
-            transcriptText: url,
+            url: url,
+            projectName: 'YouTube Transcript Extract',
           })
         });
         
-        if (!response.ok) throw new Error('Failed to retrieve YouTube captions.');
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to retrieve YouTube captions/transcript.');
+        }
         const data = await response.json();
+        const extractedText = data.transcript || (data.segments && data.segments.map((s: any) => `[${s.timestamp}] ${s.speaker ? s.speaker + ': ' : ''}${s.text}`).join('\n')) || 'No transcript text extracted.';
         
         setProgressPercent(100);
         setIsProcessing(false);
         setSuccessResult({
           type: 'text',
-          title: 'YouTube Transcript Pulled Successfully',
-          text: data.text
+          title: `YouTube Transcript: ${data.videoMetadata?.title || 'Video'}`,
+          text: extractedText
         });
       }
 

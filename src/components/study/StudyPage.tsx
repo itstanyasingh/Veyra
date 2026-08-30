@@ -111,9 +111,15 @@ export const StudyPage: React.FC<StudyPageProps> = ({ onNavigate }) => {
     };
   }, [selectedProject, aiCustomQuestions]);
 
+  const [quizError, setQuizError] = useState<string | null>(null);
+
   const handleGenerateAiQuiz = async () => {
+    if (isLoadingAiQuiz) return;
     if (!selectedProject || !selectedProject.transcript || selectedProject.transcript.length === 0) return;
+    
+    const targetProjId = selectedProject.id;
     setIsLoadingAiQuiz(true);
+    setQuizError(null);
 
     const fullTranscript = selectedProject.transcript.map((s) => s.text).join(' ');
 
@@ -127,26 +133,30 @@ export const StudyPage: React.FC<StudyPageProps> = ({ onNavigate }) => {
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.quiz && Array.isArray(data.quiz)) {
-          const formatted = data.quiz.map((q: any) => ({
-            question: q.question,
-            options: q.options || ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
-            correct: typeof q.correctIndex === 'number' ? q.correctIndex : 0,
-            explanation: q.explanation || 'Verified from video transcript.',
-          }));
-          setAiCustomQuestions((prev) => ({
-            ...prev,
-            [selectedProject.id]: formatted,
-          }));
-          setActiveQuizIndex(0);
-          setSelectedQuizOption(null);
-          setShowExplanation(false);
-        }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to generate study quiz.');
       }
-    } catch (err) {
+
+      const data = await res.json();
+      if (data.quiz && Array.isArray(data.quiz)) {
+        const formatted = data.quiz.map((q: any) => ({
+          question: q.question,
+          options: q.options || ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+          correct: typeof q.correctIndex === 'number' ? q.correctIndex : 0,
+          explanation: q.explanation || 'Verified from video transcript.',
+        }));
+        setAiCustomQuestions((prev) => ({
+          ...prev,
+          [targetProjId]: formatted,
+        }));
+        setActiveQuizIndex(0);
+        setSelectedQuizOption(null);
+        setShowExplanation(false);
+      }
+    } catch (err: any) {
       console.error('Error generating AI study quiz:', err);
+      setQuizError(err?.message || 'Could not generate quiz questions. Please verify connection and retry.');
     } finally {
       setIsLoadingAiQuiz(false);
     }
@@ -199,6 +209,7 @@ export const StudyPage: React.FC<StudyPageProps> = ({ onNavigate }) => {
                   setActiveQuizIndex(0);
                   setSelectedQuizOption(null);
                   setShowExplanation(false);
+                  setQuizError(null);
                 }}
                 className="px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-lg text-xs font-semibold text-[#111827] focus:outline-none cursor-pointer"
               >
@@ -223,6 +234,18 @@ export const StudyPage: React.FC<StudyPageProps> = ({ onNavigate }) => {
           )}
         </div>
       </div>
+
+      {quizError && (
+        <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between">
+          <span>{quizError}</span>
+          <button
+            onClick={() => handleGenerateAiQuiz()}
+            className="font-bold underline hover:no-underline ml-3"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {!hasContent ? (
         <div className="bg-white border border-[#E2E8F0] rounded-2xl p-10 text-center space-y-4">

@@ -111,9 +111,9 @@ async function generateContentWithRetry(
       try {
         console.log(`[Veyra AI] Attempting generateContent using model: ${currentModel} (try ${attempt + 1}/${maxRetries})...`);
         
-        // Timeout protection wrapper (12 seconds)
+        // Timeout protection wrapper (60 seconds)
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 12000)
+          setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 60000)
         );
 
         const apiPromise = ai.models.generateContent({
@@ -161,6 +161,9 @@ async function generateContentWithRetry(
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Set trust proxy for express-rate-limit to correctly identify users behind reverse proxies
+  app.set('trust proxy', 1);
 
   // Increase payload limits for base64 audio/video uploads
   app.use(express.json({ limit: '60mb' }));
@@ -856,13 +859,20 @@ Output strictly valid JSON with this exact schema:
   // 3. Real AI Q&A Grounded in Video Transcript
   app.post('/api/ai/ask', async (req, res) => {
     try {
-      const { prompt, transcriptText, projectName, conversationHistory } = req.body;
+      const { prompt, transcriptText: rawText, segments, transcript, projectName, conversationHistory } = req.body;
       const ai = getGeminiClient();
 
       if (!ai) {
         return res.status(500).json({
           error: 'GEMINI_API_KEY is missing.',
         });
+      }
+
+      let transcriptText = rawText;
+      if (!transcriptText && Array.isArray(segments)) {
+        transcriptText = segments.map((s: any) => `[${s.startTime || 0}s] ${s.speaker || s.speakerId || 'Speaker'}: ${s.text || ''}`).join('\n');
+      } else if (!transcriptText && Array.isArray(transcript)) {
+        transcriptText = transcript.map((s: any) => `[${s.startTime || 0}s] ${s.speaker || s.speakerId || 'Speaker'}: ${s.text || ''}`).join('\n');
       }
 
       const systemInstruction = `You are Veyra AI Video Intelligence Assistant. You answer questions strictly grounded in the video transcript and metadata of "${projectName || 'the video'}".
@@ -1034,6 +1044,171 @@ Output strictly valid JSON with this schema:
       "count": 5,
       "relevance": 95
     }
+  ]
+}`;
+      } else if (task === 'knowledgeMap') {
+        taskPrompt = `Task: Construct a visual, hierarchical Knowledge Map of topics, subtopics, concepts, and relationships strictly grounded in the transcript.
+
+Rules:
+1. Extract 4-15 meaningful, distinct topics/concepts (do not include stop words or generic filler words like "basically", "important", "thing", "today").
+2. Merge duplicate topic variations (e.g. "Machine Learning" vs "machine learning" vs "ML") into one canonical node name.
+3. Categorize nodes by type: "main_topic", "subtopic", or "concept". Main topics represent high-level themes; subtopics and concepts branch from them. Set "parentId" if a node belongs under a main topic.
+4. For each node, provide a concise summary grounded strictly in the transcript text (do not add outside facts not present in the video).
+5. For each node, provide real source timestamps from the transcript where the topic is discussed.
+6. Provide directed relationships between related nodes with types ("contains", "explains", "relates to", "contrasts", "example of", "causes", "follows").
+
+Output strictly valid JSON with this schema:
+{
+  "nodes": [
+    {
+      "id": "node_1",
+      "name": "Topic Name",
+      "type": "main_topic",
+      "summary": "Grounded explanation based on transcript...",
+      "sources": [
+        {
+          "timestamp": 45.2,
+          "textSnippet": "Exact or near snippet from transcript",
+          "speaker": "Speaker 1"
+        }
+      ],
+      "relatedTopicIds": ["node_2"],
+      "importanceScore": 90,
+      "parentId": null
+    }
+  ],
+  "relationships": [
+    {
+      "id": "rel_1",
+      "sourceId": "node_1",
+      "targetId": "node_2",
+      "label": "contains",
+      "type": "contains"
+    }
+  ]
+}`;
+      } else if (task === 'meetingIntelligence') {
+        taskPrompt = `Task: Extract structured Meeting & Decision Intelligence strictly grounded in the transcript.
+
+Rules:
+1. DECISIONS: Extract explicit decisions made (e.g. "We decided to...", "Let's go with..."). Do NOT classify suggestions as decisions.
+2. ACTION ITEMS: Extract explicit tasks. Assign owner ONLY if explicitly mentioned in text (e.g. "Tanya, can you prepare docs?" -> owner = "Tanya"). If no person is explicitly assigned, owner MUST be "Unassigned". Assign deadline ONLY if explicitly stated (e.g. "by Friday", "tomorrow"). If no deadline exists, deadline MUST be "No deadline". Initial status MUST be "OPEN".
+3. OPEN QUESTIONS: Extract unresolved or open questions raised in the discussion.
+4. RISKS: Extract explicit risks or concerns mentioned in the transcript (impact: "high", "medium", or "low").
+5. AGREEMENTS / DISAGREEMENTS: Extract explicit points of consensus ("agreement") or contrasting opinions ("disagreement").
+6. SUMMARY: Provide a concise factual executive summary (What happened, what was decided, next steps).
+7. TIMESTAMPS: Provide real source timestamps from transcript segments for every single item.
+
+Output strictly valid JSON with this schema:
+{
+  "summary": "Concise factual summary...",
+  "decisions": [
+    {
+      "id": "dec_1",
+      "text": "Decision text",
+      "timestamp": 42.5,
+      "speaker": "Speaker 1",
+      "context": "Short context",
+      "sources": [{"timestamp": 42.5, "textSnippet": "Snippet text..."}]
+    }
+  ],
+  "actionItems": [
+    {
+      "id": "act_1",
+      "task": "Task description",
+      "owner": "Tanya",
+      "deadline": "Friday",
+      "status": "OPEN",
+      "timestamp": 105.0,
+      "sources": [{"timestamp": 105.0, "textSnippet": "Snippet text..."}]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "q_1",
+      "question": "Question text",
+      "status": "OPEN",
+      "timestamp": 140.2,
+      "sources": [{"timestamp": 140.2, "textSnippet": "Snippet text..."}]
+    }
+  ],
+  "risks": [
+    {
+      "id": "risk_1",
+      "risk": "Risk description",
+      "impact": "medium",
+      "timestamp": 180.0,
+      "sources": [{"timestamp": 180.0, "textSnippet": "Snippet text..."}]
+    }
+  ],
+  "agreementsDisagreements": [
+    {
+      "id": "ad_1",
+      "type": "agreement",
+      "topic": "Architecture",
+      "summary": "Both speakers agreed on PostgreSQL",
+      "timestamp": 200.0,
+      "sources": [{"timestamp": 200.0, "textSnippet": "Snippet text..."}]
+    }
+  ]
+}`;
+      } else if (task === 'researchMode') {
+        const researchQuery = req.body.query || 'Main topic and claims investigation';
+        taskPrompt = `Task: Investigate the user's research query strictly based on the provided transcript.
+User Research Query: "${researchQuery}"
+
+CRITICAL RULES:
+1. Grounding: Every claim, finding, recommendation, opinion, or contradiction MUST be grounded strictly in the transcript provided.
+2. DO NOT search external web sources, invent URLs, invent citations, or hallucinate facts not stated in the transcript.
+3. If the transcript does NOT contain sufficient evidence to answer the research query or topic, set "isInsufficientEvidence": true and provide a clear explanation in "summary".
+4. Distinguish claim types clearly:
+   - "fact": Objective facts or statements presented as factual truth by speakers.
+   - "opinion": Subjective views or personal preferences stated by speakers.
+   - "recommendation": Advice or suggested actions given by speakers.
+   - "prediction": Future forecasts or expectations mentioned.
+   - "hypothesis": Speculative ideas or possibilities raised.
+   - "unresolved": Open questions or unresolved claims.
+5. Evidence Categories: "SUPPORTING", "CONTRADICTING", or "CONTEXT".
+6. Contradictions: Only surface genuine conflicting statements made in the video, providing timestamps for both sides.
+7. Unresolved Questions: List important questions or research gaps left unanswered by the video.
+
+Output strictly valid JSON with this schema:
+{
+  "title": "Research Title / Topic",
+  "summary": "Overall synthesis of findings grounded in transcript",
+  "mainFinding": "Concise main finding statement",
+  "isInsufficientEvidence": false,
+  "findings": [
+    {
+      "id": "find_1",
+      "claim": "Claim or finding text",
+      "claimType": "fact",
+      "summary": "Brief explanation",
+      "excerpt": "Exact or near-exact short quote from transcript",
+      "timestamp": 45.2,
+      "speaker": "Speaker 1",
+      "evidenceCategory": "SUPPORTING",
+      "sources": [
+        {
+          "timestamp": 45.2,
+          "textSnippet": "Snippet from transcript..."
+        }
+      ]
+    }
+  ],
+  "contradictions": [
+    {
+      "id": "contra_1",
+      "claimA": "First statement",
+      "timestampA": 30.0,
+      "claimB": "Contradictory statement",
+      "timestampB": 120.0,
+      "summary": "Explanation of conflict",
+      "resolution": "Resolution if explicitly stated"
+    }
+  ],
+  "unresolvedQuestions": [
+    "Unresolved question text"
   ]
 }`;
       } else {
@@ -1341,11 +1516,22 @@ Output strictly valid JSON with this exact schema:
   // 5. Real AI Study Questions & Flashcards Generation
   app.post('/api/ai/study-quiz', async (req, res) => {
     try {
-      const { transcriptText, projectName } = req.body;
+      const { transcriptText: rawText, segments, transcript, projectName } = req.body;
       const ai = getGeminiClient();
 
       if (!ai) {
         return res.status(500).json({ error: 'GEMINI_API_KEY is missing.' });
+      }
+
+      let transcriptText = rawText;
+      if (!transcriptText && Array.isArray(segments)) {
+        transcriptText = segments.map((s: any) => `[${s.startTime || 0}s] ${s.speaker || s.speakerId || 'Speaker'}: ${s.text || ''}`).join('\n');
+      } else if (!transcriptText && Array.isArray(transcript)) {
+        transcriptText = transcript.map((s: any) => `[${s.startTime || 0}s] ${s.speaker || s.speakerId || 'Speaker'}: ${s.text || ''}`).join('\n');
+      }
+
+      if (!transcriptText || !transcriptText.trim()) {
+        return res.status(400).json({ error: 'No transcript text provided for study quiz generation.' });
       }
 
       const prompt = `

@@ -12,7 +12,8 @@ import {
   Subtitles,
   Globe,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { Project, SubtitleCue } from '../../types';
 import { 
@@ -25,6 +26,7 @@ import {
   triggerFileDownload,
   sanitizeFileName
 } from '../../utils/exportUtils';
+import { ExportModal } from '../common/ExportModal';
 
 interface WorkspaceHeaderProps {
   project: Project;
@@ -36,6 +38,7 @@ interface WorkspaceHeaderProps {
   onOpenDeleteConfirm: () => void;
   activeCaptionLanguage?: string;
   setActiveCaptionLanguage?: (lang: string) => void;
+  activeTab?: string;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -48,10 +51,12 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onOpenDeleteConfirm,
   activeCaptionLanguage = 'source',
   setActiveCaptionLanguage,
+  activeTab,
 }) => {
   const [isEditingInline, setIsEditingInline] = useState(false);
   const [nameValue, setNameValue] = useState(project.name);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
@@ -60,6 +65,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       setToastMessage((current) => (current?.text === text ? null : current));
     }, 3500);
   };
+
 
   const handleSaveInline = () => {
     const trimmed = nameValue.trim();
@@ -320,7 +326,23 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 className="fixed inset-0 z-40" 
                 onClick={() => setIsExportOpen(false)} 
               />
-              <div className="absolute right-0 mt-1.5 w-60 bg-white border border-[#E5E5E5] rounded-lg shadow-xl py-1.5 z-50 text-xs divide-y divide-[#F0F0F0] max-h-[85vh] overflow-y-auto">
+              <div className="absolute right-0 mt-1.5 w-64 bg-white border border-[#E5E5E5] rounded-lg shadow-xl py-1.5 z-50 text-xs divide-y divide-[#F0F0F0] max-h-[85vh] overflow-y-auto">
+                {/* 0. ADVANCED EXPORT CENTER */}
+                <div className="p-1">
+                  <button
+                    onClick={() => {
+                      setIsExportOpen(false);
+                      setIsExportModalOpen(true);
+                    }}
+                    className="w-full px-3 py-2 text-left bg-neutral-900 hover:bg-black text-white rounded-md flex items-center justify-between cursor-pointer font-bold transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Export Center (PDF, MD, TXT)...</span>
+                    </span>
+                  </button>
+                </div>
+
                 {/* 1. TRANSCRIPT */}
                 <div>
                   <div className="px-3 py-1 text-[10px] font-mono-time uppercase tracking-wider text-[#999999] bg-[#FAFAFA]">
@@ -449,6 +471,16 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           <span className="font-medium">{toastMessage.text}</span>
         </div>
       )}
+
+      {/* Export Center Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        project={project}
+        activeTab={activeTab}
+        onToast={(msg, type) => showToast(msg, type)}
+      />
     </header>
   );
+
 };

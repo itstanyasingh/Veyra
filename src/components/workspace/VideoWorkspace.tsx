@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { VideoPlayerDeck } from './VideoPlayerDeck';
+import { SmartTimeline } from './SmartTimeline';
 import { MediaInfoDeck } from './MediaInfoDeck';
 import { WorkspaceToolsPanel } from './WorkspaceToolsPanel';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -174,13 +175,13 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
   };
 
   const handleUpdateProject = useCallback((updates: Partial<Project>) => {
-    if (project) {
-      const updated = updateProject(project.id, updates);
+    if (project && project.id === projectId) {
+      const updated = updateProject(projectId, updates);
       if (updated) {
         setProject(updated);
       }
     }
-  }, [project]);
+  }, [project, projectId]);
 
   const handleMediaReplaced = (updatedProj: Project) => {
     setProject(updatedProj);
@@ -295,26 +296,34 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
           {/* Left Column: Player + Controls + Media Specs (7 cols on lg, 7 cols on xl) */}
           <section className="lg:col-span-7 xl:col-span-7 space-y-4">
             {(isYtProject || mediaBlobUrl) ? (
-              <VideoPlayerDeck
-                sourceType={isYtProject ? 'youtube' : 'upload'}
-                youtubeVideoId={project.youtubeVideoId}
-                originalUrl={project.originalUrl || (isYtProject ? project.mediaUrl : undefined)}
-                mediaUrl={isYtProject ? undefined : mediaBlobUrl || undefined}
-                mediaType={project.mediaType}
-                fileName={project.fileName}
-                aspectRatio={project.aspectRatio}
-                currentTime={currentTime}
-                duration={project.duration || 60}
-                showSubtitlesOverlay={showSubtitlesOverlay}
-                transcriptSegments={project.transcript}
-                subtitles={activeSubtitles}
-                searchMatchTimestamps={searchMatchTimestamps}
-                onDurationLoaded={handleDurationLoaded}
-                onOpenReplaceMedia={() => setIsReplaceOpen(true)}
-                onSeek={handleSeek}
-                onTimeUpdateCallback={handleTimeUpdateCallback}
-                playerRefCallback={handlePlayerRefCallback}
-              />
+              <div className="space-y-4">
+                <VideoPlayerDeck
+                  sourceType={isYtProject ? 'youtube' : 'upload'}
+                  youtubeVideoId={project.youtubeVideoId}
+                  originalUrl={project.originalUrl || (isYtProject ? project.mediaUrl : undefined)}
+                  mediaUrl={isYtProject ? undefined : mediaBlobUrl || undefined}
+                  mediaType={project.mediaType}
+                  fileName={project.fileName}
+                  aspectRatio={project.aspectRatio}
+                  currentTime={currentTime}
+                  duration={project.duration || 60}
+                  showSubtitlesOverlay={showSubtitlesOverlay}
+                  transcriptSegments={project.transcript}
+                  subtitles={activeSubtitles}
+                  searchMatchTimestamps={searchMatchTimestamps}
+                  onDurationLoaded={handleDurationLoaded}
+                  onOpenReplaceMedia={() => setIsReplaceOpen(true)}
+                  onSeek={handleSeek}
+                  onTimeUpdateCallback={handleTimeUpdateCallback}
+                  playerRefCallback={handlePlayerRefCallback}
+                />
+                <SmartTimeline
+                  project={project}
+                  currentTime={currentTime}
+                  onSeek={handleSeek}
+                  searchMatchTimestamps={searchMatchTimestamps}
+                />
+              </div>
             ) : (
               /* Missing Media Fallback Area */
               <div className="bg-[#FFFFFF] border border-[#E5E5E5] rounded-xl p-10 text-center space-y-4">
@@ -354,6 +363,7 @@ export const VideoWorkspace: React.FC<VideoWorkspaceProps> = ({
               onSearchMatchesChanged={handleSearchMatchesChanged}
               activeCaptionLanguage={activeCaptionLanguage}
               setActiveCaptionLanguage={setActiveCaptionLanguage}
+              playerControllerRef={playerControllerRef}
             />
           </section>
         </div>

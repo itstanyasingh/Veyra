@@ -46,6 +46,9 @@ import {
   Volume2,
   BarChart3,
   History,
+  Scissors,
+  Network,
+  Compass,
 } from 'lucide-react';
 import { 
   Project, 
@@ -61,7 +64,8 @@ import {
   AIActionItem,
   AIQuestion,
   AITopic,
-  AIKeyword
+  AIKeyword,
+  KnowledgeMapData
 } from '../../types';
 import { formatDuration } from '../../utils/formatters';
 import { generateSRT, generateVTT, triggerFileDownload, sanitizeFileName } from '../../utils/exportUtils';
@@ -69,6 +73,10 @@ import { analyzeTranscriptTask, calculateTranscriptHash } from '../../services/a
 import { TranslationWorkspace } from './TranslationWorkspace';
 import { TranscriptSegmentItem } from './TranscriptSegmentItem';
 import { SubtitleCueItem } from './SubtitleCueItem';
+import { ClipStudio } from './ClipStudio';
+import { KnowledgeMapStudio } from './KnowledgeMapStudio';
+import { MeetingIntelligenceStudio } from './MeetingIntelligenceStudio';
+import { ResearchModeStudio } from './ResearchModeStudio';
 
 export function formatTimecode(seconds: number): string {
   if (isNaN(seconds) || seconds < 0) return '00:00.000';
@@ -190,9 +198,10 @@ interface WorkspaceToolsPanelProps {
   onSearchMatchesChanged?: (timestamps: number[]) => void;
   activeCaptionLanguage?: string;
   setActiveCaptionLanguage?: (lang: string) => void;
+  playerControllerRef?: React.MutableRefObject<any>;
 }
 
-type TabType = 'transcript' | 'search' | 'subtitles' | 'translate' | 'ai' | 'summary' | 'documents';
+type TabType = 'transcript' | 'search' | 'subtitles' | 'translate' | 'ai' | 'summary' | 'documents' | 'clips' | 'knowledgeMap' | 'meetingIntelligence' | 'research';
 
 interface AIChatMessage {
   id: string;
@@ -210,9 +219,13 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
   onSearchMatchesChanged,
   activeCaptionLanguage = 'source',
   setActiveCaptionLanguage,
+  playerControllerRef,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
+  
+  // State for draft clip to be populated from actions elsewhere (e.g. Chapters / Moments)
+  const [clipDraft, setClipDraft] = useState<{ name: string; startTime: number; endTime: number } | null>(null);
 
   // Transcript Editing & Speaker State
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
@@ -869,9 +882,11 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
 
   // Real Semantic / Conceptual Search Execution via Server-Side Gemini
   const handleExecuteSemanticSearch = async (queryText?: string) => {
+    if (isSearchingSemantic) return;
     const q = (queryText || searchQuery).trim();
     if (!q) return;
 
+    const targetProjId = project.id;
     setIsSearchingSemantic(true);
     setSemanticError(null);
     try {
@@ -891,6 +906,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
       }
 
       const data = await response.json();
+      if (project.id !== targetProjId) return;
       setSemanticResults(data);
       setIsSemanticMode(true);
       addSearchHistory(q);
@@ -1664,11 +1680,13 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
 
   // AI Document Generation Handler & Markdown Renderer
   const handleGenerateDocument = async (type: string) => {
+    if (isGeneratingDoc) return;
     if (segments.length === 0) {
       setDocError('No transcript available. Transcribe the video first.');
       return;
     }
 
+    const targetProjId = project.id;
     setIsGeneratingDoc(true);
     setDocError(null);
 
@@ -1690,6 +1708,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
       }
 
       const data = await response.json();
+      if (project.id !== targetProjId) return;
       
       const updatedDocs = {
         ...(project.generatedDocs || {}),
@@ -1874,9 +1893,143 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
     if (!customPrompt) setAiInput('');
     setIsAiGenerating(true);
 
-    const fullTranscript = segments
-      .map((s) => `[${formatDuration(s.startTime)} - ${formatDuration(s.endTime)}] ${speakerMap.get(s.speakerId) || s.speakerId}: ${s.text}`)
-      .join('\n');
+    // Retrieve and package the most relevant context parts
+    const retrievedTranscriptContext = (() => {
+      if (segments.length <= 40) {
+        return segments
+          .map((s) => `[${formatDuration(s.startTime)} - ${formatDuration(s.endTime)}] ${speakerMap.get(s.speakerId) || s.speakerId}: ${s.text}`)
+          .join('\n');
+      }
+
+      const stopwords = new Set([
+        'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'arent', 'as', 'at',
+        'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by', 'cant', 'cannot', 'could',
+        'did', 'didnt', 'do', 'does', 'doesnt', 'doing', 'dont', 'down', 'during',
+        'each', 'few', 'for', 'from', 'further', 'had', 'hadnt', 'has', 'hasnt', 'have', 'havent', 'having', 'he', 'her', 'here',
+        'him', 'his', 'how', 'i', 'if', 'in', 'into', 'is', 'isnt', 'it', 'its', 'itself', 'just', 'me', 'more', 'most', 'my', 'myself',
+        'no', 'nor', 'not', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'ought', 'our', 'ours', 'ourselves', 'out', 'over', 'own',
+        'same', 'shant', 'she', 'should', 'shouldnt', 'so', 'some', 'such', 'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves',
+        'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'wasnt', 'we',
+        'were', 'werent', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would', 'wouldnt', 'you', 'your', 'yours',
+        'yourself', 'yourselves'
+      ]);
+
+      const queryTokens = query
+        .toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length > 1 && !stopwords.has(t));
+
+      const lowercaseQuery = query.toLowerCase();
+      const isGlobalQuery = 
+        lowercaseQuery.includes('summarize') ||
+        lowercaseQuery.includes('summary') ||
+        lowercaseQuery.includes('key takeaway') ||
+        lowercaseQuery.includes('conclusion') ||
+        lowercaseQuery.includes('overview') ||
+        lowercaseQuery.includes('decisions') ||
+        lowercaseQuery.includes('main point') ||
+        lowercaseQuery.includes('what are the main') ||
+        queryTokens.length === 0;
+
+      if (isGlobalQuery) {
+        const subsetSize = 50;
+        const selectedIndices = new Set<number>();
+        for (let i = 0; i < Math.min(15, segments.length); i++) {
+          selectedIndices.add(i);
+        }
+        for (let i = Math.max(0, segments.length - 15); i < segments.length; i++) {
+          selectedIndices.add(i);
+        }
+        const remainingCount = subsetSize - selectedIndices.size;
+        if (remainingCount > 0) {
+          const step = Math.max(1, Math.floor(segments.length / remainingCount));
+          for (let i = 0; i < segments.length; i += step) {
+            if (selectedIndices.size >= subsetSize) break;
+            selectedIndices.add(i);
+          }
+        }
+        const chronological = Array.from(selectedIndices).sort((a, b) => a - b);
+        return chronological
+          .map((idx) => {
+            const s = segments[idx];
+            return `[${formatDuration(s.startTime)} - ${formatDuration(s.endTime)}] ${speakerMap.get(s.speakerId) || s.speakerId}: ${s.text}`;
+          })
+          .join('\n');
+      }
+
+      let targetedTimeInSeconds: number | null = null;
+      const timeMatch = query.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        targetedTimeInSeconds = parseInt(timeMatch[1], 10) * 60 + parseInt(timeMatch[2], 10);
+      } else {
+        const minMatch = query.match(/around\s+(\d+)\s+min/i) || query.match(/at\s+(\d+)\s+min/i) || query.match(/(\d+)\s*minute/i);
+        if (minMatch) {
+          targetedTimeInSeconds = parseInt(minMatch[1], 10) * 60;
+        }
+      }
+
+      const scoredSegments = segments.map((segment, index) => {
+        let score = 0;
+        const segmentTextLower = segment.text.toLowerCase();
+
+        queryTokens.forEach((token) => {
+          if (segmentTextLower.includes(token)) {
+            score += 10;
+            const r = new RegExp('\\b' + token + '\\b', 'i');
+            if (r.test(segmentTextLower)) {
+              score += 15;
+            }
+          }
+        });
+
+        const spkName = speakerMap.get(segment.speakerId) || segment.speakerId;
+        if (query.toLowerCase().includes(spkName.toLowerCase())) {
+          score += 10;
+        }
+
+        if (targetedTimeInSeconds !== null) {
+          const midPoint = (segment.startTime + segment.endTime) / 2;
+          const dist = Math.abs(midPoint - targetedTimeInSeconds);
+          if (dist < 60) {
+            score += 50;
+          } else if (dist < 180) {
+            score += 25;
+          }
+        }
+
+        return { index, score };
+      });
+
+      const topScored = scoredSegments
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 15);
+
+      if (topScored.length === 0) {
+        return segments
+          .slice(0, 40)
+          .map((s) => `[${formatDuration(s.startTime)} - ${formatDuration(s.endTime)}] ${speakerMap.get(s.speakerId) || s.speakerId}: ${s.text}`)
+          .join('\n');
+      }
+
+      const expandedIndices = new Set<number>();
+      topScored.forEach((seed) => {
+        const startIdx = Math.max(0, seed.index - 2);
+        const endIdx = Math.min(segments.length - 1, seed.index + 2);
+        for (let i = startIdx; i <= endIdx; i++) {
+          expandedIndices.add(i);
+        }
+      });
+
+      const chronologicalIndices = Array.from(expandedIndices).sort((a, b) => a - b);
+      return chronologicalIndices
+        .map((idx) => {
+          const s = segments[idx];
+          return `[${formatDuration(s.startTime)} - ${formatDuration(s.endTime)}] ${speakerMap.get(s.speakerId) || s.speakerId}: ${s.text}`;
+        })
+        .join('\n');
+    })();
 
     try {
       const response = await fetch('/api/ai/ask', {
@@ -1884,7 +2037,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: query,
-          transcriptText: fullTranscript,
+          transcriptText: retrievedTranscriptContext,
           projectName: project.name,
           conversationHistory: aiMessages.slice(-6).filter(m => m.id !== 'init_1'),
         }),
@@ -1923,9 +2076,11 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
 
   // Real AI Universal Analysis Task Runner
   const handleRunAITask = async (targetTask?: AIAnalysisTask) => {
+    if (isAnalyzing) return;
     const task = targetTask || activeAITool;
     if (segments.length === 0) return;
     
+    const targetProjId = project.id;
     setIsAnalyzing(true);
     setAnalysisError(null);
 
@@ -1938,6 +2093,8 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         duration: project.duration,
         speakers: speakers,
       });
+
+      if (project.id !== targetProjId) return;
 
       const updatedResults: AIAnalysisResults = {
         ...project.aiAnalysisResults,
@@ -2143,7 +2300,7 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Video AI</span>
+            <span>Intelligence Hub</span>
           </button>
 
           <button
@@ -2168,6 +2325,74 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
           >
             <Layers className="w-3.5 h-3.5" />
             <span>AI Documents</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('clips')}
+            className={`px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-t border-t border-x transition-colors flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'clips'
+                ? 'bg-white border-[#E5E5E5] text-[#111111] -mb-[1px] border-b-white'
+                : 'border-transparent text-[#666666] hover:text-[#111111]'
+            }`}
+          >
+            <Scissors className="w-3.5 h-3.5" />
+            <span>Clip Studio</span>
+            {project.clips && project.clips.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#111111] text-white text-[9px] flex items-center justify-center font-mono-time">
+                {project.clips.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('knowledgeMap')}
+            className={`px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-t border-t border-x transition-colors flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'knowledgeMap'
+                ? 'bg-white border-[#E5E5E5] text-[#111111] -mb-[1px] border-b-white'
+                : 'border-transparent text-[#666666] hover:text-[#111111]'
+            }`}
+          >
+            <Network className="w-3.5 h-3.5" />
+            <span>Knowledge Map</span>
+            {project.knowledgeMap && project.knowledgeMap.nodes.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#111111] text-white text-[9px] flex items-center justify-center font-mono-time">
+                {project.knowledgeMap.nodes.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('meetingIntelligence')}
+            className={`px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-t border-t border-x transition-colors flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'meetingIntelligence'
+                ? 'bg-white border-[#E5E5E5] text-[#111111] -mb-[1px] border-b-white'
+                : 'border-transparent text-[#666666] hover:text-[#111111]'
+            }`}
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Meeting Intelligence</span>
+            {project.meetingIntelligence && (
+              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-mono-time">
+                {project.meetingIntelligence.decisions.length + project.meetingIntelligence.actionItems.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('research')}
+            className={`px-3 py-2 text-xs font-semibold uppercase tracking-wider rounded-t border-t border-x transition-colors flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'research'
+                ? 'bg-white border-[#E5E5E5] text-[#111111] -mb-[1px] border-b-white'
+                : 'border-transparent text-[#666666] hover:text-[#111111]'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Research Mode</span>
+            {project.researchItems && project.researchItems.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-mono-time">
+                {project.researchItems.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -3509,90 +3734,142 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
         )}
 
         {/* ============================================================ */}
-        {/* TAB 5: VIDEO AI */}
+        {/* TAB 5: INTELLIGENCE HUB */}
         {/* ============================================================ */}
         {activeTab === 'ai' && (
           <div className="h-full flex flex-col justify-between p-4 sm:p-6 space-y-4">
-            {/* AI Messages Stream */}
-            <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-              {aiMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${
-                    msg.sender === 'user' ? 'items-end' : 'items-start'
-                  }`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-lg p-3.5 text-xs leading-relaxed ${
-                      msg.sender === 'user'
-                        ? 'bg-[#111111] text-white'
-                        : 'bg-[#FAFAFA] border border-[#E5E5E5] text-[#111111]'
-                    }`}
-                  >
-                    <div className="whitespace-pre-line">
-                      {renderGroundedTextWithClickableTimestamps(msg.text)}
-                    </div>
-                  </div>
-                  <span className="text-[9px] font-mono-time text-[#999999] mt-1 px-1">
-                    {msg.sender === 'user' ? 'You' : 'VEYRA AI'}
-                  </span>
+            {segments.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-neutral-50 border border-neutral-200 flex items-center justify-center text-neutral-400">
+                  <Sparkles className="w-6 h-6" />
                 </div>
-              ))}
-
-              {isAiGenerating && (
-                <div className="flex items-center gap-2 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-lg max-w-[60%] text-xs text-[#666666]">
-                  <span className="w-2 h-2 rounded-full bg-[#111111] animate-ping" />
-                  <span>Analyzing video transcript...</span>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-[#111111]">Intelligence Hub</h3>
+                  <p className="text-xs text-[#666666] max-w-sm">
+                    Import or transcribe a video first to ask questions about it.
+                  </p>
                 </div>
-              )}
-            </div>
-
-            {/* Suggested Question Pills */}
-            <div className="space-y-2 pt-2 border-t border-[#F0F0F0]">
-              <span className="text-[10px] font-mono-time uppercase tracking-wider text-[#999999]">
-                Suggested Questions
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  'Summarize this video',
-                  'What are the core topics?',
-                  'What is the technical pipeline?',
-                  'Key takeaways and conclusions',
-                ].map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => handleSendAiPrompt(prompt)}
-                    className="px-2.5 py-1 bg-[#FAFAFA] hover:bg-[#111111] hover:text-white border border-[#E5E5E5] rounded text-[11px] text-[#333333] transition-colors cursor-pointer"
-                  >
-                    {prompt}
-                  </button>
-                ))}
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Header section */}
+                <div className="pb-3 border-b border-[#F0F0F0]">
+                  <h3 className="text-xs font-mono-time uppercase tracking-wider text-[#999999]">Intelligence Hub</h3>
+                  <p className="text-[11px] text-[#666666]">Ask anything about this video and jump directly to the source timestamps.</p>
+                </div>
 
-            {/* Input Bar */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendAiPrompt();
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                placeholder="Ask any question grounded in this video..."
-                className="flex-1 px-3 py-2 bg-[#FAFAFA] border border-[#E5E5E5] rounded text-xs text-[#111111] placeholder:text-[#999999] focus:outline-none focus:border-[#111111] focus:bg-white transition-colors"
-              />
-              <button
-                type="submit"
-                disabled={!aiInput.trim() || isAiGenerating}
-                className="px-4 py-2 bg-[#111111] hover:bg-black disabled:opacity-40 text-white rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
+                {/* AI Messages Stream */}
+                <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+                  {aiMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${
+                        msg.sender === 'user' ? 'items-end' : 'items-start'
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-lg p-3.5 text-xs leading-relaxed ${
+                          msg.sender === 'user'
+                            ? 'bg-[#111111] text-white'
+                            : 'bg-[#FAFAFA] border border-[#E5E5E5] text-[#111111]'
+                        }`}
+                      >
+                        <div className="whitespace-pre-line">
+                          {renderGroundedTextWithClickableTimestamps(msg.text)}
+                        </div>
+                        {msg.sender === 'ai' && /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/.test(msg.text) && (
+                          <button
+                            onClick={() => {
+                              const match = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/.exec(msg.text);
+                              if (match) {
+                                const timeStr = match[1];
+                                const timeParts = timeStr.split(':').map(Number);
+                                let sec = 0;
+                                if (timeParts.length === 2) {
+                                  sec = timeParts[0] * 60 + timeParts[1];
+                                } else if (timeParts.length === 3) {
+                                  sec = timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2];
+                                }
+                                setClipDraft({
+                                  name: 'AI Insight Highlight',
+                                  startTime: Math.max(0, sec - 10),
+                                  endTime: Math.min(project.duration || 60, sec + 30),
+                                });
+                                setActiveTab('clips');
+                              }
+                            }}
+                            title="Turn this AI insight segment into a clip definition"
+                            className="mt-2.5 text-[10px] font-bold text-[#111111] bg-white hover:bg-neutral-50 border border-[#E5E5E5] hover:border-[#111111] rounded-md px-2 py-1 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Scissors className="w-2.5 h-2.5" />
+                            <span>Create Clip from this insight</span>
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[9px] font-mono-time text-[#999999] mt-1 px-1">
+                        {msg.sender === 'user' ? 'You' : 'VEYRA AI'}
+                      </span>
+                    </div>
+                  ))}
+
+                  {isAiGenerating && (
+                    <div className="flex items-center gap-2 p-3 bg-[#FAFAFA] border border-[#E5E5E5] rounded-lg max-w-[70%] text-xs text-[#666666]">
+                      <span className="w-2 h-2 rounded-full bg-[#111111] animate-ping" />
+                      <span>Retrieving source context & reasoning over transcript...</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggested Question Pills */}
+                <div className="space-y-2 pt-2 border-t border-[#F0F0F0]">
+                  <span className="text-[10px] font-mono-time uppercase tracking-wider text-[#999999]">
+                    Suggested Questions
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      'What are the main points?',
+                      'What are the key decisions?',
+                      'What examples were discussed?',
+                      'What should I remember?',
+                    ].map((prompt) => (
+                      <button
+                        key={prompt}
+                        disabled={isAiGenerating}
+                        onClick={() => handleSendAiPrompt(prompt)}
+                        className="px-2.5 py-1 bg-[#FAFAFA] hover:bg-[#111111] hover:text-white disabled:opacity-50 disabled:hover:bg-[#FAFAFA] disabled:hover:text-[#333333] border border-[#E5E5E5] rounded text-[11px] text-[#333333] transition-colors cursor-pointer"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Input Bar */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendAiPrompt();
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    type="text"
+                    value={aiInput}
+                    onChange={(e) => setAiInput(e.target.value)}
+                    disabled={isAiGenerating}
+                    placeholder="Ask any question grounded in this video..."
+                    className="flex-1 px-3 py-2 bg-[#FAFAFA] border border-[#E5E5E5] rounded text-xs text-[#111111] placeholder:text-[#999999] focus:outline-none focus:border-[#111111] focus:bg-white transition-colors disabled:opacity-60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!aiInput.trim() || isAiGenerating}
+                    className="px-4 py-2 bg-[#111111] hover:bg-black disabled:opacity-40 text-white rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         )}
 
@@ -3847,10 +4124,28 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                                 <Bookmark className="w-3.5 h-3.5 text-[#111111]" />
                                 <span>{ch.title}</span>
                               </span>
-                              <span className="px-2.5 py-1 bg-[#F0F0F0] rounded-md text-[11px] font-mono-time text-[#111111] font-semibold flex items-center gap-1">
-                                <Play className="w-2.5 h-2.5 fill-current" />
-                                <span>{formatDuration(ch.startTime)} - {formatDuration(ch.endTime)}</span>
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setClipDraft({
+                                      name: ch.title,
+                                      startTime: ch.startTime,
+                                      endTime: ch.endTime
+                                    });
+                                    setActiveTab('clips');
+                                  }}
+                                  title="Create a clip from this chapter segment"
+                                  className="px-2 py-0.5 bg-white border border-[#E5E5E5] hover:border-[#111111] rounded text-[10px] font-bold text-[#111111] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Scissors className="w-2.5 h-2.5" />
+                                  <span>Create Clip</span>
+                                </button>
+                                <span className="px-2.5 py-1 bg-[#F0F0F0] rounded-md text-[11px] font-mono-time text-[#111111] font-semibold flex items-center gap-1">
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                  <span>{formatDuration(ch.startTime)} - {formatDuration(ch.endTime)}</span>
+                                </span>
+                              </div>
                             </div>
                             <p className="text-xs text-[#666666] leading-relaxed pl-5">
                               {renderGroundedTextWithClickableTimestamps(ch.summary)}
@@ -3881,7 +4176,25 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
                               <span>{formatDuration(km.timestamp)}</span>
                             </button>
                             <div className="space-y-1 flex-1">
-                              <h4 className="text-xs font-bold text-[#111111]">{km.title}</h4>
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-bold text-[#111111]">{km.title}</h4>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setClipDraft({
+                                      name: km.title,
+                                      startTime: Math.max(0, km.timestamp - 10),
+                                      endTime: Math.min(project.duration || 60, km.timestamp + 30)
+                                    });
+                                    setActiveTab('clips');
+                                  }}
+                                  title="Create a clip centered on this moment"
+                                  className="px-2 py-0.5 bg-white border border-[#E5E5E5] hover:border-[#111111] rounded text-[10px] font-bold text-[#111111] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Scissors className="w-2.5 h-2.5" />
+                                  <span>Create Clip</span>
+                                </button>
+                              </div>
                               <p className="text-xs text-[#666666] leading-relaxed">
                                 {renderGroundedTextWithClickableTimestamps(km.explanation)}
                               </p>
@@ -4371,6 +4684,121 @@ export const WorkspaceToolsPanel: React.FC<WorkspaceToolsPanelProps> = ({
             </div>
           );
         })()}
+
+        {/* ============================================================ */}
+        {/* TAB 8: CLIP & HIGHLIGHT STUDIO */}
+        {/* ============================================================ */}
+        {activeTab === 'clips' && (
+          <ClipStudio
+            project={project}
+            currentTime={currentTime}
+            onSeek={onSeek}
+            onUpdateProject={onUpdateProject}
+            playerControllerRef={playerControllerRef || { current: null }}
+            externalDraft={clipDraft}
+            clearExternalDraft={() => setClipDraft(null)}
+          />
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 9: INTERACTIVE KNOWLEDGE MAP */}
+        {/* ============================================================ */}
+        {activeTab === 'knowledgeMap' && (
+          <KnowledgeMapStudio
+            project={project}
+            currentTime={currentTime}
+            onSeek={onSeek}
+            onUpdateProject={onUpdateProject}
+            onOpenIntelligenceHubWithTopic={(topicName, promptText) => {
+              setAiMessages(prev => [
+                ...prev,
+                {
+                  id: `user_top_${Date.now()}`,
+                  sender: 'user',
+                  text: promptText,
+                  createdAt: new Date().toISOString(),
+                }
+              ]);
+              setActiveTab('ai');
+              // Automatically trigger AI question handler
+              handleSendAiPrompt(promptText);
+            }}
+            onCreateClipFromTopic={(name, startTime, endTime) => {
+              setClipDraft({ name, startTime, endTime });
+              setActiveTab('clips');
+            }}
+            onRepurposeTopic={(topicName, summary) => {
+              setActiveTab('documents');
+            }}
+            onSwitchTab={(tab) => setActiveTab(tab as TabType)}
+          />
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 10: MEETING & DECISION INTELLIGENCE */}
+        {/* ============================================================ */}
+        {activeTab === 'meetingIntelligence' && (
+          <MeetingIntelligenceStudio
+            project={project}
+            currentTime={currentTime}
+            onSeek={onSeek}
+            onUpdateProject={onUpdateProject}
+            onOpenIntelligenceHubWithTopic={(topicName, promptText) => {
+              setAiMessages(prev => [
+                ...prev,
+                {
+                  id: `user_top_${Date.now()}`,
+                  sender: 'user',
+                  text: promptText,
+                  createdAt: new Date().toISOString(),
+                }
+              ]);
+              setActiveTab('ai');
+              handleSendAiPrompt(promptText);
+            }}
+            onCreateClipFromTopic={(name, startTime, endTime) => {
+              setClipDraft({ name, startTime, endTime });
+              setActiveTab('clips');
+            }}
+            onRepurposeTopic={(topicName, summary) => {
+              setActiveTab('documents');
+            }}
+            onSwitchTab={(tab) => setActiveTab(tab as TabType)}
+          />
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB 11: RESEARCH MODE */}
+        {/* ============================================================ */}
+        {activeTab === 'research' && (
+          <ResearchModeStudio
+            project={project}
+            currentTime={currentTime}
+            onSeek={onSeek}
+            onUpdateProject={onUpdateProject}
+            onOpenIntelligenceHubWithTopic={(topicName, promptText) => {
+              setAiMessages(prev => [
+                ...prev,
+                {
+                  id: `user_res_${Date.now()}`,
+                  sender: 'user',
+                  text: promptText,
+                  createdAt: new Date().toISOString(),
+                }
+              ]);
+              setActiveTab('ai');
+              handleSendAiPrompt(promptText);
+            }}
+            onCreateClipFromTopic={(name, startTime, endTime) => {
+              setClipDraft({ name, startTime, endTime });
+              setActiveTab('clips');
+            }}
+            onRepurposeTopic={(topicName, summary) => {
+              setActiveTab('documents');
+            }}
+            onSwitchTab={(tab) => setActiveTab(tab as TabType)}
+          />
+        )}
       </div>
 
       {/* ============================================================ */}

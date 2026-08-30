@@ -22,8 +22,25 @@ export function saveProjects(projects: Project[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
     window.dispatchEvent(new Event('veyra_projects_changed'));
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to save projects to localStorage:', err);
+    // QuotaExceededError handling: strip heavy inline binary/media data if storage quota exceeded
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      try {
+        const sanitizedProjects = projects.map(p => {
+          const clone = { ...p };
+          if (clone.mediaUrl && clone.mediaUrl.startsWith('data:')) {
+            delete clone.mediaUrl;
+          }
+          return clone;
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedProjects));
+        window.dispatchEvent(new Event('veyra_projects_changed'));
+        console.warn('Saved projects after stripping inline data due to storage quota limits.');
+      } catch (retryErr) {
+        console.error('Critical: Local storage quota exceeded even after trimming data:', retryErr);
+      }
+    }
   }
 }
 

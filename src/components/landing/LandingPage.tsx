@@ -442,66 +442,215 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               </div>
             </div>
 
-            {/* Right Column: Visual Preview Card */}
+            {/* Right Column: Realistic Veyra Product Visualization Card */}
             <div className="lg:col-span-6">
-              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl p-5 sm:p-6 shadow-xs text-left space-y-4">
-                <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center font-bold text-xs">
-                      <Video className="w-3.5 h-3.5" />
+              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl p-4 sm:p-5 shadow-xs text-left space-y-3.5 select-none">
+                
+                {/* Product Header Bar */}
+                <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444]/80"></span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]/80"></span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]/80"></span>
                     </div>
-                    <span className="text-xs font-bold text-[#111827]">Interview about the economic situation</span>
-                  </div>
-                  <span className="px-2 py-0.5 bg-white border border-[#E2E8F0] rounded text-[10px] font-mono text-[#64748B]">
-                    00:12:45
-                  </span>
-                </div>
-
-                {/* Professional Video Thumbnail Preview */}
-                <div className="relative aspect-video rounded-xl overflow-hidden shadow-inner border border-[#E2E8F0] group">
-                  <img
-                    src="https://images.unsplash.com/photo-1590650153855-d9e808231d41?auto=format&fit=crop&w=800&q=80"
-                    alt="Interview recording preview"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center group-hover:bg-black/40 transition-colors">
-                    <div className="w-12 h-12 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                      <Play className="w-5 h-5 fill-current ml-0.5" />
+                    <div className="h-3.5 w-px bg-[#CBD5E1]"></div>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Video className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
+                      <span className="text-xs font-bold text-[#111827] truncate font-mono">interview_economic_outlook.mp4</span>
                     </div>
                   </div>
-                  <div className="absolute bottom-2.5 left-3 px-2 py-0.5 bg-black/70 backdrop-blur-md rounded text-[10px] font-mono text-white">
-                    1080p · Studio Recording
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-[#E2E8F0] rounded-full text-[10px] font-mono text-[#0F172A]">
+                      <span className="w-1.5 h-1.5 bg-[#10B981] rounded-full animate-pulse"></span>
+                      <span>SYNCED</span>
+                    </span>
+                    <span className="hidden sm:inline-block text-[10px] font-semibold text-[#2563EB] bg-[#EFF6FF] border border-[#DBEAFE] px-2 py-0.5 rounded">
+                      AI Diarization
+                    </span>
                   </div>
                 </div>
 
-                <div className="space-y-2 bg-white p-3.5 rounded-xl border border-[#E2E8F0]">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-[#2563EB]">Journalist:</span>
-                    <span className="font-mono text-[#94A3B8]">00:00:05</span>
+                {/* Modern Video Player Viewport */}
+                <div className="relative aspect-[16/9] bg-[#0F172A] rounded-xl overflow-hidden shadow-inner border border-[#334155]/60 flex flex-col justify-between p-3.5">
+                  
+                  {/* Clean SVG Studio Environment & Speaker Illustration */}
+                  <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" viewBox="0 0 480 270">
+                    <defs>
+                      <linearGradient id="studioBg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#1E293B" />
+                        <stop offset="100%" stopColor="#0F172A" />
+                      </linearGradient>
+                      <linearGradient id="warmLight" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#1E293B" stopOpacity="0" />
+                      </linearGradient>
+                      <linearGradient id="acousticPattern" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#334155" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#1E293B" stopOpacity="0.2" />
+                      </linearGradient>
+                    </defs>
+                    
+                    {/* Studio Backdrop */}
+                    <rect width="480" height="270" fill="url(#studioBg)" />
+                    <rect width="480" height="270" fill="url(#warmLight)" />
+                    
+                    {/* Acoustic Sound Treatment Panels (Background) */}
+                    <g opacity="0.4">
+                      <rect x="24" y="24" width="70" height="120" rx="4" fill="url(#acousticPattern)" stroke="#475569" strokeWidth="1" />
+                      <line x1="24" y1="54" x2="94" y2="54" stroke="#475569" strokeWidth="1" />
+                      <line x1="24" y1="84" x2="94" y2="84" stroke="#475569" strokeWidth="1" />
+                      <line x1="24" y1="114" x2="94" y2="114" stroke="#475569" strokeWidth="1" />
+
+                      <rect x="386" y="24" width="70" height="120" rx="4" fill="url(#acousticPattern)" stroke="#475569" strokeWidth="1" />
+                      <line x1="386" y1="54" x2="456" y2="54" stroke="#475569" strokeWidth="1" />
+                      <line x1="386" y1="84" x2="456" y2="84" stroke="#475569" strokeWidth="1" />
+                      <line x1="386" y1="114" x2="456" y2="114" stroke="#475569" strokeWidth="1" />
+                    </g>
+                    
+                    {/* Studio Key Light Glow */}
+                    <circle cx="240" cy="115" r="95" fill="#2563EB" opacity="0.12" filter="blur(20px)" />
+                    
+                    {/* Professional Speaker (Vector Silhouette / Studio Presentation) */}
+                    <g transform="translate(170, 48)">
+                      {/* Studio Light Beam Halo */}
+                      <ellipse cx="70" cy="70" rx="65" ry="68" fill="#1E293B" opacity="0.6" />
+                      {/* Head & Hair */}
+                      <ellipse cx="70" cy="55" rx="26" ry="32" fill="#E2E8F0" />
+                      <path d="M48 50 C48 30, 92 30, 92 50 C92 40, 85 32, 70 32 C55 32, 48 40, 48 50 Z" fill="#334155" />
+                      {/* Neck */}
+                      <rect x="63" y="82" width="14" height="18" fill="#CBD5E1" rx="2" />
+                      {/* Professional Suit / Blazer Collar */}
+                      <path d="M15 155 L40 96 L62 100 L70 120 L78 100 L100 96 L125 155 Z" fill="#1E293B" stroke="#475569" strokeWidth="1.5" />
+                      {/* Inner Shirt */}
+                      <polygon points="62,100 70,128 78,100" fill="#FFFFFF" />
+                      {/* Studio Lapel Mic */}
+                      <circle cx="67" cy="112" r="2.5" fill="#0F172A" stroke="#94A3B8" strokeWidth="0.8" />
+                      <line x1="67" y1="114.5" x2="65" y2="128" stroke="#64748B" strokeWidth="0.8" />
+                    </g>
+
+                    {/* Broadcast Studio Microphone on Stand (Right of Speaker) */}
+                    <g transform="translate(295, 110)">
+                      <rect x="8" y="0" width="14" height="26" rx="7" fill="#475569" stroke="#94A3B8" strokeWidth="1" />
+                      <line x1="8" y1="13" x2="22" y2="13" stroke="#94A3B8" strokeWidth="1" />
+                      <path d="M3 13 C3 23, 27 23, 27 13" fill="none" stroke="#94A3B8" strokeWidth="1.5" />
+                      <line x1="15" y1="23" x2="15" y2="46" stroke="#94A3B8" strokeWidth="2" />
+                      <line x1="5" y1="46" x2="25" y2="46" stroke="#94A3B8" strokeWidth="2.5" />
+                      {/* Subtle sound wave arcs */}
+                      <path d="M-4 3 C-9 9, -9 17, -4 23" fill="none" stroke="#38BDF8" strokeWidth="1.2" opacity="0.75" />
+                      <path d="M-8 -2 C-15 6, -15 20, -8 28" fill="none" stroke="#38BDF8" strokeWidth="1" opacity="0.4" />
+                    </g>
+                  </svg>
+
+                  {/* Top Overlay: Media Tally & Stream Badges */}
+                  <div className="relative z-10 flex items-center justify-between text-white/90">
+                    <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-mono border border-white/10">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                      <span className="font-semibold text-red-400">REC</span>
+                      <span className="text-white/40">|</span>
+                      <span>1080p 60fps</span>
+                    </div>
+                    <div className="px-2 py-0.5 bg-[#2563EB]/80 backdrop-blur-md text-white font-mono text-[10px] rounded border border-blue-400/30">
+                      Speaker 2 · 00:00:14
+                    </div>
                   </div>
-                  <p className="text-xs text-[#111827] leading-relaxed">
-                    "What do you believe are the primary factors influencing the current economic climate?"
-                  </p>
+
+                  {/* Center Playback Trigger */}
+                  <div className="relative z-10 flex items-center justify-center my-auto">
+                    <div className="w-10 h-10 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-lg shadow-black/40 border border-white/20 hover:scale-105 transition-transform cursor-pointer">
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
+                    </div>
+                  </div>
+
+                  {/* Active Subtitle Overlay */}
+                  <div className="relative z-10 bg-black/85 text-white px-3 py-1.5 rounded-lg text-center text-[11px] font-medium max-w-sm mx-auto shadow-md border border-white/15 backdrop-blur-sm leading-snug">
+                    <span className="text-[#38BDF8] font-bold mr-1.5">Speaker 2:</span>
+                    "The main drivers are inflation trends and monetary supply adjustments..."
+                  </div>
+
+                  {/* Embedded Player Scrubber Control */}
+                  <div className="relative z-10 mt-2 bg-black/50 backdrop-blur-md rounded-md p-1.5 border border-white/10 flex items-center justify-between text-[10px] text-white/80 font-mono">
+                    <div className="flex items-center gap-2 w-full pr-2">
+                      <span className="text-[#38BDF8] shrink-0 font-bold">00:00:14</span>
+                      <div className="relative w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                        <div className="absolute top-0 left-0 h-full w-[28%] bg-[#2563EB] rounded-full"></div>
+                      </div>
+                      <span className="text-white/50 shrink-0">00:12:45</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 pl-1">
+                      <Volume2 className="w-3 h-3 text-white/80" />
+                      <span className="text-[9px] px-1 bg-white/15 rounded">1.0x</span>
+                    </div>
+                  </div>
+
                 </div>
 
-                <div className="space-y-2 bg-white p-3.5 rounded-xl border border-[#E2E8F0]">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-[#111827]">Expert:</span>
-                    <span className="font-mono text-[#94A3B8]">00:00:14</span>
+                {/* Speech-to-Text Pipeline Connector */}
+                <div className="flex items-center justify-between px-2 py-1 bg-white border border-[#E2E8F0] rounded-lg text-[10px] text-[#64748B]">
+                  <div className="flex items-center gap-1.5 font-medium text-[#111827]">
+                    <Sparkles className="w-3.5 h-3.5 text-[#2563EB]" />
+                    <span>Spoken Audio → Text Engine</span>
                   </div>
-                  <p className="text-xs text-[#475569] leading-relaxed">
-                    "The main drivers are inflation trends and monetary supply adjustments across global markets."
-                  </p>
+                  <div className="flex items-center gap-1 font-mono text-[#059669] font-semibold">
+                    <CheckCircle2 className="w-3 h-3 text-[#059669]" />
+                    <span>Real-Time Word Sync</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="px-2.5 py-1 bg-white border border-[#E2E8F0] text-[11px] font-mono font-medium rounded text-[#374151]">.txt</span>
-                  <span className="px-2.5 py-1 bg-white border border-[#E2E8F0] text-[11px] font-mono font-medium rounded text-[#374151]">.docx</span>
-                  <span className="px-2.5 py-1 bg-white border border-[#E2E8F0] text-[11px] font-mono font-medium rounded text-[#374151]">.srt</span>
-                  <span className="px-2.5 py-1 bg-white border border-[#E2E8F0] text-[11px] font-mono font-medium rounded text-[#374151]">.vtt</span>
-                  <span className="px-2.5 py-1 bg-[#EFF6FF] text-[#2563EB] text-[11px] font-mono font-semibold rounded">+4 all extensions</span>
+                {/* Synchronized Transcript Text Panel */}
+                <div className="space-y-2">
+                  
+                  {/* Segment 1: Completed / Prior */}
+                  <div className="bg-white p-3 rounded-xl border border-[#E2E8F0] transition-colors">
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <div className="flex items-center gap-1.5 font-bold text-[#2563EB]">
+                        <span className="w-2 h-2 rounded-full bg-[#2563EB]"></span>
+                        <span>Speaker 1 (Journalist)</span>
+                      </div>
+                      <span className="font-mono text-[10px] text-[#64748B] bg-[#F1F5F9] px-1.5 py-0.5 rounded border border-[#E2E8F0]">
+                        00:00:05
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#334155] leading-relaxed">
+                      "What do you believe are the primary factors influencing the current economic climate?"
+                    </p>
+                  </div>
+
+                  {/* Segment 2: Active Playhead Synchronized */}
+                  <div className="bg-[#EFF6FF]/60 p-3 rounded-xl border border-[#93C5FD] shadow-xs relative">
+                    <div className="absolute top-2.5 right-2 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB] animate-ping"></span>
+                      <span className="text-[9px] font-mono font-bold text-[#2563EB] uppercase">Playing</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] mb-1">
+                      <span className="w-2 h-2 rounded-full bg-[#0F172A]"></span>
+                      <span className="font-bold text-[#0F172A]">Speaker 2 (Chief Economist)</span>
+                      <span className="font-mono text-[10px] text-[#2563EB] bg-white px-1.5 py-0.5 rounded border border-[#BFDBFE] font-semibold">
+                        00:00:14
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#0F172A] font-medium leading-relaxed">
+                      "The main drivers are <mark className="bg-[#DBEAFE] text-[#1E40AF] px-1 rounded font-semibold">inflation trends</mark> and monetary supply adjustments across global markets."
+                    </p>
+                  </div>
+
                 </div>
+
+                {/* Export Formats Footer */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#E2E8F0]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-[#64748B] uppercase tracking-wider font-mono">Export:</span>
+                    <span className="px-2 py-0.5 bg-white border border-[#CBD5E1] text-[10px] font-mono font-semibold rounded text-[#1E293B] shadow-2xs">.TXT</span>
+                    <span className="px-2 py-0.5 bg-white border border-[#CBD5E1] text-[10px] font-mono font-semibold rounded text-[#1E293B] shadow-2xs">.DOCX</span>
+                    <span className="px-2 py-0.5 bg-white border border-[#CBD5E1] text-[10px] font-mono font-semibold rounded text-[#1E293B] shadow-2xs">.SRT</span>
+                    <span className="px-2 py-0.5 bg-white border border-[#CBD5E1] text-[10px] font-mono font-semibold rounded text-[#1E293B] shadow-2xs">.VTT</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] font-medium text-[#2563EB]">
+                    <Check className="w-3 h-3 text-[#2563EB]" />
+                    <span>Timecoded Transcript</span>
+                  </div>
+                </div>
+
               </div>
             </div>
 
@@ -514,34 +663,205 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center">
             
-            {/* Left Column: Visual Box */}
+            {/* Left Column: Visual Box - Real Veyra Video Transcription Workspace Mockup */}
             <div className="lg:col-span-6 order-2 lg:order-1">
-              <div className="bg-white border border-[#E2E8F0] rounded-2xl p-6 shadow-xs space-y-4 text-center">
-                <div className="w-16 h-16 rounded-full bg-[#EFF6FF] border-4 border-[#2563EB]/20 mx-auto flex items-center justify-center text-[#2563EB]">
-                  <CheckCircle2 className="w-8 h-8 text-[#2563EB]" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-[#111827]">interview.mp4</h4>
-                  <p className="text-xs text-[#10B981] font-semibold mt-0.5 flex items-center justify-center gap-1">
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Done in 27 seconds</span>
-                  </p>
-                </div>
-
-                {/* Progress bar visual */}
-                <div className="w-full bg-[#EFF6FF] h-2 rounded-full overflow-hidden">
-                  <div className="bg-[#2563EB] h-full w-full rounded-full"></div>
-                </div>
-
-                <div className="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0] text-left text-xs text-[#64748B] space-y-1">
-                  <div className="flex justify-between text-[11px] font-mono">
-                    <span>Acoustic Confidence: 99.6%</span>
-                    <span>Language: English (US)</span>
+              <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 sm:p-5 shadow-xs text-left space-y-3 select-none">
+                
+                {/* 1. Top Header & Real Veyra Toolbar */}
+                <div className="space-y-2 border-b border-[#E2E8F0] pb-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-5 h-5 rounded bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center shrink-0">
+                        <Video className="w-3 h-3" />
+                      </div>
+                      <span className="text-xs font-bold text-[#111827] truncate font-mono">product_keynote_2026.mp4</span>
+                    </div>
+                    {/* Status Indicator */}
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-[#F0FDF4] border border-[#BBF7D0] rounded-full text-[10px] font-medium text-[#15803D] shrink-0">
+                      <CheckCircle2 className="w-3 h-3 text-[#16A34A]" />
+                      <span>Transcript ready</span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-[#111827] truncate">
-                    "Welcome back everyone. Today we're analyzing video ingestion pipelines..."
-                  </p>
+
+                  {/* Actions Toolbar */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 scrollbar-none">
+                    <div className="flex items-center gap-1 px-2 py-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-md text-[10px] text-[#64748B] shrink-0">
+                      <Search className="w-2.5 h-2.5" />
+                      <span>Search...</span>
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-md text-[10px] font-semibold text-[#2563EB] shrink-0">
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span>AI Summary</span>
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-md text-[10px] text-[#475569] shrink-0">
+                      <Globe className="w-2.5 h-2.5" />
+                      <span>Translate</span>
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-md text-[10px] text-[#475569] shrink-0">
+                      <Subtitles className="w-2.5 h-2.5" />
+                      <span>Subtitles</span>
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-md text-[10px] text-[#475569] shrink-0">
+                      <Download className="w-2.5 h-2.5" />
+                      <span>Export</span>
+                    </div>
+                  </div>
                 </div>
+
+                {/* 2. Modern Video Player Viewport (Interview/Presentation Setting) */}
+                <div className="relative aspect-[16/8] bg-[#0F172A] rounded-xl overflow-hidden shadow-inner border border-[#334155]/60 flex flex-col justify-between p-2.5 sm:p-3">
+                  
+                  {/* SVG Studio Environment Illustration */}
+                  <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" viewBox="0 0 440 220">
+                    <defs>
+                      <linearGradient id="lecBg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#1E293B" />
+                        <stop offset="100%" stopColor="#0F172A" />
+                      </linearGradient>
+                      <linearGradient id="lecSpot" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#2563EB" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="#0F172A" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    
+                    <rect width="440" height="220" fill="url(#lecBg)" />
+                    <rect width="440" height="220" fill="url(#lecSpot)" />
+                    
+                    {/* Stage Presentation Screen (Background) */}
+                    <g opacity="0.35">
+                      <rect x="22" y="18" width="130" height="85" rx="4" fill="#334155" stroke="#475569" strokeWidth="1" />
+                      <line x1="32" y1="36" x2="100" y2="36" stroke="#38BDF8" strokeWidth="2" />
+                      <line x1="32" y1="48" x2="130" y2="48" stroke="#94A3B8" strokeWidth="1.5" />
+                      <line x1="32" y1="60" x2="120" y2="60" stroke="#94A3B8" strokeWidth="1.5" />
+                      <line x1="32" y1="72" x2="85" y2="72" stroke="#94A3B8" strokeWidth="1.5" />
+                      
+                      <rect x="288" y="18" width="130" height="85" rx="4" fill="#334155" stroke="#475569" strokeWidth="1" />
+                      <rect x="302" y="32" width="45" height="55" rx="2" fill="#2563EB" opacity="0.5" />
+                      <rect x="355" y="44" width="45" height="43" rx="2" fill="#38BDF8" opacity="0.5" />
+                    </g>
+                    
+                    {/* Speaker Key Spotlight */}
+                    <circle cx="220" cy="95" r="75" fill="#3B82F6" opacity="0.15" filter="blur(15px)" />
+                    
+                    {/* Speaker on Podium / Keynote Stage */}
+                    <g transform="translate(160, 32)">
+                      {/* Head */}
+                      <ellipse cx="60" cy="45" rx="22" ry="26" fill="#F1F5F9" />
+                      <path d="M42 40 C42 22, 78 22, 78 40 C78 30, 72 24, 60 24 C48 24, 42 30, 42 40 Z" fill="#334155" />
+                      {/* Neck */}
+                      <rect x="54" y="68" width="12" height="15" fill="#CBD5E1" />
+                      {/* Dark Blazer & Presentation Attire */}
+                      <path d="M12 135 L34 82 L52 86 L60 102 L68 86 L86 82 L108 135 Z" fill="#1E293B" stroke="#475569" strokeWidth="1.2" />
+                      <polygon points="52,86 60,110 68,86" fill="#FFFFFF" />
+                      {/* Stage Headset Mic */}
+                      <path d="M78 44 C82 52, 80 62, 68 66" fill="none" stroke="#94A3B8" strokeWidth="1" />
+                      <circle cx="67" cy="66" r="2" fill="#38BDF8" />
+                    </g>
+
+                    {/* Conference Lectern / Stage Stand */}
+                    <g transform="translate(185, 140)">
+                      <path d="M10 0 L60 0 L52 45 L18 45 Z" fill="#334155" stroke="#475569" strokeWidth="1" />
+                      <rect x="25" y="8" width="20" height="12" rx="1" fill="#1E293B" />
+                    </g>
+                  </svg>
+
+                  {/* Top Bar inside video player */}
+                  <div className="relative z-10 flex items-center justify-between text-white/90">
+                    <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-mono border border-white/10">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]"></span>
+                      <span>1080p HD</span>
+                    </div>
+                    <div className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white font-mono text-[10px] rounded border border-white/10">
+                      02:14 / 18:42
+                    </div>
+                  </div>
+
+                  {/* Play Trigger in Center */}
+                  <div className="relative z-10 flex items-center justify-center my-auto">
+                    <div className="w-9 h-9 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-lg border border-white/20 hover:scale-105 transition-transform">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </div>
+                  </div>
+
+                  {/* Video Subtitle Caption */}
+                  <div className="relative z-10 bg-black/85 text-white px-2.5 py-1 rounded text-center text-[10.5px] font-medium max-w-xs mx-auto shadow-md border border-white/15 backdrop-blur-xs leading-tight">
+                    "Let's look at how automated transcription accelerates team workflows..."
+                  </div>
+
+                  {/* Player Scrubber */}
+                  <div className="relative z-10 mt-1.5 bg-black/50 backdrop-blur-md rounded px-2 py-1 border border-white/10 flex items-center justify-between text-[9px] text-white/80 font-mono">
+                    <div className="flex items-center gap-2 w-full pr-2">
+                      <span className="text-[#38BDF8] shrink-0 font-bold">02:14</span>
+                      <div className="relative w-full h-1 bg-white/20 rounded-full overflow-hidden">
+                        <div className="absolute top-0 left-0 h-full w-[12%] bg-[#2563EB] rounded-full"></div>
+                      </div>
+                      <span className="text-white/50 shrink-0">18:42</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Volume2 className="w-2.5 h-2.5 text-white/80" />
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 3. Transcript Panel with Highlighted Active Segment */}
+                <div className="space-y-1.5">
+                  
+                  {/* Segment 1 */}
+                  <div className="p-2.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
+                    <div className="flex items-center justify-between text-[10px] mb-0.5">
+                      <span className="font-bold text-[#64748B]">Speaker 1 (Host)</span>
+                      <span className="font-mono text-[#94A3B8]">00:01:48</span>
+                    </div>
+                    <p className="text-[11px] text-[#475569] leading-relaxed">
+                      "Welcome back. In this session, we're examining modern speech-to-text accuracy in distributed teams."
+                    </p>
+                  </div>
+
+                  {/* Segment 2 - ACTIVE / CURRENTLY SPOKEN HIGHLIGHT */}
+                  <div className="p-2.5 bg-[#EFF6FF] rounded-lg border border-[#93C5FD] relative shadow-2xs">
+                    <div className="flex items-center justify-between text-[10px] mb-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB] animate-ping"></span>
+                        <span className="font-bold text-[#2563EB]">Speaker 2 (Presenter)</span>
+                      </div>
+                      <span className="font-mono text-[10px] text-[#2563EB] bg-white px-1.5 py-0.2 rounded border border-[#BFDBFE] font-semibold">
+                        00:02:14
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#0F172A] font-medium leading-relaxed">
+                      "Let's look at how automated transcription <mark className="bg-[#DBEAFE] text-[#1E40AF] px-1 rounded font-semibold">accelerates team workflows</mark> and eliminates manual note-taking."
+                    </p>
+                  </div>
+
+                  {/* Segment 3 */}
+                  <div className="p-2.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
+                    <div className="flex items-center justify-between text-[10px] mb-0.5">
+                      <span className="font-bold text-[#64748B]">Speaker 1 (Host)</span>
+                      <span className="font-mono text-[#94A3B8]">00:02:40</span>
+                    </div>
+                    <p className="text-[11px] text-[#475569] leading-relaxed truncate">
+                      "And that synchronizes directly with generated chapters and action items..."
+                    </p>
+                  </div>
+
+                </div>
+
+                {/* 4. Export Formats Footer */}
+                <div className="flex items-center justify-between pt-1 border-t border-[#E2E8F0] text-[10px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-[#64748B] uppercase font-mono text-[9px]">Export:</span>
+                    <span className="px-1.5 py-0.5 bg-[#F8FAFC] border border-[#CBD5E1] font-mono font-semibold rounded text-[#1E293B]">TXT</span>
+                    <span className="px-1.5 py-0.5 bg-[#F8FAFC] border border-[#CBD5E1] font-mono font-semibold rounded text-[#1E293B]">DOCX</span>
+                    <span className="px-1.5 py-0.5 bg-[#F8FAFC] border border-[#CBD5E1] font-mono font-semibold rounded text-[#1E293B]">SRT</span>
+                    <span className="px-1.5 py-0.5 bg-[#F8FAFC] border border-[#CBD5E1] font-mono font-semibold rounded text-[#1E293B]">VTT</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-[#2563EB] flex items-center gap-1">
+                    <Check className="w-3 h-3" />
+                    <span>Synchronized</span>
+                  </span>
+                </div>
+
               </div>
             </div>
 

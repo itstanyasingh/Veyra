@@ -53,8 +53,8 @@ export const ProductPreview: React.FC = () => {
               <span className="w-1.5 h-1.5 bg-[#10B981] rounded-full"></span>
               <span>SYNCHRONIZED · 00:42:15</span>
             </span>
-            <span className="hidden sm:inline-block text-xs font-semibold text-[#2563EB] bg-[#EFF6FF] px-2 py-0.5 rounded">
-              99.8% Confidence
+            <span className="hidden sm:inline-block text-xs font-medium text-[#475569] bg-[#F1F5F9] border border-[#E2E8F0] px-2 py-0.5 rounded">
+              SRT & VTT Ready
             </span>
           </div>
         </div>
