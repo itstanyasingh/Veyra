@@ -45,7 +45,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [embedRestricted, setEmbedRestricted] = useState(false);
+  const [useDirectEmbed, setUseDirectEmbed] = useState(false);
 
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onDurationLoadedRef = useRef(onDurationLoaded);
@@ -157,7 +157,6 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             onReady: (event: any) => {
               if (!isMounted) return;
               setIsReady(true);
-              setEmbedRestricted(false);
               const d = event.target.getDuration?.();
               if (d && d > 0 && onDurationLoadedRef.current) {
                 onDurationLoadedRef.current(d);
@@ -180,15 +179,14 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             },
             onError: (event: any) => {
               if (!isMounted) return;
-              console.warn('YouTube player embed error:', event.data);
-              // Codes 2, 5, 100, 101, 150 mean video cannot be embedded
-              setEmbedRestricted(true);
+              console.warn('YouTube player JS API error:', event.data, 'Falling back to direct embed iframe.');
+              setUseDirectEmbed(true);
             },
           },
         });
       } catch (err) {
-        console.error('Failed to create YouTube player:', err);
-        if (isMounted) setEmbedRestricted(true);
+        console.error('Failed to create YouTube player, falling back to direct iframe:', err);
+        if (isMounted) setUseDirectEmbed(true);
       }
     };
 
@@ -251,36 +249,33 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     return () => clearInterval(timer);
   }, [isPlaying]);
 
-  // Fallback for embed restriction
-  if (embedRestricted) {
-    const fallbackUrl = originalUrl || `https://www.youtube.com/watch?v=${videoId}`;
+  const computedAspect = aspectRatio.includes(':') ? aspectRatio.replace(':', '/') : '16/9';
+
+  if (useDirectEmbed) {
     return (
-      <div className="w-full min-h-[260px] sm:min-h-[360px] bg-[#0F0F10] border border-[#27272A] rounded-xl p-8 flex flex-col items-center justify-center text-center text-white space-y-4">
-        <div className="w-12 h-12 rounded-full bg-[#27272A] border border-[#3F3F46] flex items-center justify-center text-[#E4E4E7]">
-          <Youtube className="w-6 h-6 text-[#FF0000]" />
-        </div>
-        <div className="max-w-md space-y-1.5">
-          <h4 className="text-sm font-semibold text-white leading-snug">
-            Video playback is unavailable for this YouTube video, but the transcript is ready.
-          </h4>
-          <p className="text-xs text-[#A1A1AA] leading-relaxed">
-            The video owner may have restricted external embedding. You can view the video directly on YouTube while utilizing all transcript and AI tools here.
-          </p>
-        </div>
-        <a
-          href={fallbackUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF0000] hover:bg-[#CC0000] text-white font-semibold text-xs rounded-lg shadow-xs transition-all cursor-pointer"
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-          <span>Open on YouTube</span>
-        </a>
+      <div
+        className="relative w-full bg-[#000000] overflow-hidden min-h-[260px] sm:min-h-[380px] max-h-[580px] flex items-center justify-center"
+        style={{ aspectRatio: computedAspect }}
+      >
+        <iframe
+          src={`https://www.youtube.com/embed/${videoId}?autoplay=0&enablejsapi=1&rel=0`}
+          className="w-full h-full border-0 relative z-10"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          title="YouTube Video Player"
+        />
+
+        {/* Subtitle Overlay */}
+        {showSubtitlesOverlay && currentSubtitleText && (
+          <div className="absolute bottom-4 sm:bottom-6 inset-x-0 flex justify-center pointer-events-none z-20 px-4">
+            <div className="w-fit max-w-[70%] px-3 py-1 sm:px-3.5 sm:py-1.5 bg-black/75 backdrop-blur-xs text-white text-xs sm:text-sm font-medium rounded-md text-center shadow-md leading-snug border border-white/10 line-clamp-2 select-none animate-fade-in">
+              {currentSubtitleText}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
-
-  const computedAspect = aspectRatio.includes(':') ? aspectRatio.replace(':', '/') : '16/9';
 
   return (
     <div
@@ -299,7 +294,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
       )}
 
       {/* Initial Loading overlay */}
-      {!isReady && !embedRestricted && (
+      {!isReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505] text-white gap-2 z-20">
           <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
           <span className="text-xs font-mono-time uppercase tracking-widest text-neutral-400">

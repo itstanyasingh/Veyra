@@ -483,7 +483,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                 Paste your video/audio link
               </h3>
               <p className="text-xs text-[#64748B] leading-relaxed">
-                Paste a YouTube URL to transcribe supported publicly accessible videos. Direct file upload is the guaranteed fallback.
+                Paste a YouTube URL to import an available transcript. For videos without an accessible transcript, upload the media file directly.
               </p>
             </div>
 
@@ -561,21 +561,29 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
 
         {/* Error message with recovery options */}
         {errorMsg && (
-          <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#DC2626] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
+          <div className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-xs text-[#DC2626] flex flex-col items-start gap-2.5">
+            <div className="flex items-start gap-2 min-w-0 w-full">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <p className="font-medium text-[#DC2626] leading-snug">{errorMsg}</p>
+                {(errorMsg.includes('YouTube') || errorMsg.includes('automated access') || errorMsg.includes('verification')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('upload');
+                      setErrorMsg(null);
+                      setUrlWarning(null);
+                      fileInputRef.current?.click();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] font-semibold text-xs rounded-md shadow-2xs transition-colors cursor-pointer mt-1"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload media file directly</span>
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-              {selectedFile && (
-                <button
-                  type="button"
-                  onClick={() => selectedFile && handleProcessFile(selectedFile)}
-                  className="px-2.5 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] font-semibold text-[11px] rounded cursor-pointer transition-colors"
-                >
-                  Try again
-                </button>
-              )}
+            <div className="flex items-center gap-1.5 self-end shrink-0 pt-1 border-t border-[#FCA5A5]/30 w-full justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -586,7 +594,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                 }}
                 className="px-2.5 py-1 bg-white hover:bg-[#FEE2E2] border border-[#FCA5A5] text-[#DC2626] font-semibold text-[11px] rounded cursor-pointer transition-colors"
               >
-                Choose another file
+                Clear &amp; try again
               </button>
             </div>
           </div>

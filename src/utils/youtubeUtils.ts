@@ -6,7 +6,9 @@
 export function isYouTubeUrl(urlStr: string): boolean {
   if (!urlStr || typeof urlStr !== 'string') return false;
   try {
-    const u = new URL(urlStr);
+    const trimmed = urlStr.trim();
+    const fixedUrl = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
+    const u = new URL(fixedUrl);
     const host = u.hostname.toLowerCase();
     return host.includes('youtube.com') || host.includes('youtu.be');
   } catch {
@@ -17,7 +19,9 @@ export function isYouTubeUrl(urlStr: string): boolean {
 export function extractYouTubeVideoId(urlStr: string): string | null {
   if (!urlStr || typeof urlStr !== 'string') return null;
   try {
-    const u = new URL(urlStr);
+    const trimmed = urlStr.trim();
+    const fixedUrl = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
+    const u = new URL(fixedUrl);
     const host = u.hostname.toLowerCase();
 
     if (!host.includes('youtube.com') && !host.includes('youtu.be')) {
@@ -47,6 +51,12 @@ export function extractYouTubeVideoId(urlStr: string): string | null {
       // https://www.youtube.com/embed/VIDEO_ID
       if (u.pathname.startsWith('/embed/')) {
         const id = u.pathname.split('/embed/')[1]?.split('/')[0]?.split('?')[0];
+        return id && id.length >= 5 ? id : null;
+      }
+
+      // https://www.youtube.com/live/VIDEO_ID
+      if (u.pathname.startsWith('/live/')) {
+        const id = u.pathname.split('/live/')[1]?.split('/')[0]?.split('?')[0];
         return id && id.length >= 5 ? id : null;
       }
     }

@@ -4,11 +4,8 @@ import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import {
   isYouTubeUrl,
-  extractYouTubeVideoId,
-  validateAndExtractYouTubeId,
-  getYouTubeTranscript,
-  groupCaptionsIntoSegments,
-} from './youtube.js';
+  transcribeYouTubeWithGemini,
+} from './youtubeTranscriptService.js';
 
 dotenv.config();
 
@@ -374,6 +371,11 @@ Output strictly valid JSON with this exact schema:
     };
 
     return res.json({
+      success: true,
+      source: 'uploaded_media',
+      fileName,
+      videoTitle: fileName,
+      duration: estimatedDuration,
       speakers: speakersList,
       transcript,
       subtitles,
@@ -391,212 +393,57 @@ Output strictly valid JSON with this exact schema:
 app.post('/api/transcribe-url', async (req, res) => {
   try {
     const { url, projectName, contextHint } = req.body;
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ error: 'Please enter a valid media URL.' });
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      return res.status(400).json({
+        success: false,
+        code: 'YOUTUBE_INVALID_URL',
+        message: 'Please enter a valid media URL.',
+        canUploadMedia: true,
+        error: 'Please enter a valid media URL.',
+      });
     }
 
     let parsedUrl: URL;
     try {
-      parsedUrl = new URL(url);
+      parsedUrl = new URL(url.trim());
     } catch {
-      return res.status(400).json({ error: 'Invalid URL format. Please provide a valid HTTP or HTTPS link.' });
+      return res.status(400).json({
+        success: false,
+        code: 'YOUTUBE_INVALID_URL',
+        message: 'Invalid URL format. Please provide a valid HTTP or HTTPS link.',
+        canUploadMedia: true,
+        error: 'Invalid URL format. Please provide a valid HTTP or HTTPS link.',
+      });
     }
 
     if (!isSafePublicUrl(url)) {
-      return res.status(400).json({ error: 'Invalid or restricted URL target. Please enter a public web media link.' });
+      return res.status(400).json({
+        success: false,
+        code: 'YOUTUBE_INVALID_URL',
+        message: 'Invalid or restricted URL target. Please enter a public web media link.',
+        canUploadMedia: true,
+        error: 'Invalid or restricted URL target. Please enter a public web media link.',
+      });
     }
 
     const ai = getGeminiClient();
-
-    // Handle YouTube Video URLs
-    if (isYouTubeUrl(url)) {
-      const validation = validateAndExtractYouTubeId(url);
-      if (!validation.valid || !validation.videoId) {
-        return res.status(400).json({ error: validation.error || 'Please enter a valid YouTube video URL.' });
-      }
-
-      const videoId = validation.videoId;
-      const canonicalUrl = validation.canonicalUrl || `https://www.youtube.com/watch?v=${videoId}`;
-
-      // Ingest YouTube Video via multi-tier fallback pipeline
-      const ytResult = await getYouTubeTranscript(videoId);
-
-      if (!ytResult.success) {
-        return res.status(400).json({
-          error: ytResult.errorMessage || 'No accessible captions or audio streams could be retrieved for this YouTube video. Please download and upload the media file directly.',
-        });
-      }
-
-      const videoTitle = ytResult.videoTitle || projectName || 'YouTube Video';
-      const channelName = ytResult.channelName || 'YouTube Creator';
-
-      // If retrieved via direct audio stream fallback
-      if (ytResult.sourceMethod === 'audio_stream' && ytResult.audioBuffer) {
-        if (!ai) {
-          return res.status(500).json({
-            error: 'GEMINI_API_KEY is missing. Please configure it in your environment settings.',
-          });
-        }
-
-        console.log(`[Veyra YouTube] Transcribing audio stream via Gemini for "${videoTitle}"...`);
-        const base64Audio = ytResult.audioBuffer.toString('base64');
-        const mimeType = ytResult.audioMimeType || 'audio/mp4';
-
-        const prompt = `You are an expert speech recognition and audio intelligence engine.
-Transcribe and analyze this authentic audio track from YouTube video "${videoTitle}" by "${channelName}".
-
-Perform strict speaker diarization and time-synchronized transcription.
-Format timestamps as integer or float seconds (e.g. 0.0, 5.2, 12.8).
-
-Provide structured JSON:
-{
-  "speakers": [
-    { "id": "spk_1", "name": "${channelName}" }
-  ],
-  "transcript": [
-    {
-      "id": "seg_1",
-      "speakerId": "spk_1",
-      "startTime": 0.0,
-      "endTime": 5.2,
-      "text": "Exact spoken words..."
-    }
-  ],
-  "summary": {
-    "overview": "Overview...",
-    "keyPoints": ["Point 1", "Point 2"],
-    "chapters": [
-      { "title": "Chapter 1", "startTime": 0.0, "endTime": 30.0, "summary": "Summary..." }
-    ],
-    "actionItems": []
-  }
-}`;
-
-        const response = await generateContentWithRetry(ai, {
-          model: 'gemini-3.7-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { inlineData: { mimeType, data: base64Audio } },
-                { text: prompt },
-              ],
-            },
-          ],
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.2,
-          },
-        });
-
-        const parsedData = JSON.parse(response.text || '{}');
-        const rawSegments = Array.isArray(parsedData.transcript) ? parsedData.transcript : [];
-        const transcript = rawSegments.map((seg: any, idx: number) => ({
-          id: `seg_${idx + 1}`,
-          speakerId: seg.speakerId || 'spk_1',
-          startTime: parseTimestampToSeconds(seg.startTime),
-          endTime: parseTimestampToSeconds(seg.endTime),
-          text: (seg.text || '').trim(),
-        }));
-
-        const subtitles = transcript.map((seg: any, idx: number) => ({
-          id: `sub_${idx + 1}`,
-          index: idx + 1,
-          startTime: seg.startTime,
-          endTime: seg.endTime,
-          text: seg.text,
-        }));
-
-        const duration = transcript.length > 0 ? Math.ceil(transcript[transcript.length - 1].endTime) : 180;
-
-        return res.json({
-          fileName: videoTitle,
-          mediaUrl: canonicalUrl,
-          duration,
-          fileSize: ytResult.audioBuffer.byteLength,
-          speakers: parsedData.speakers || [{ id: 'spk_1', name: channelName }],
-          transcript,
-          subtitles,
-          summary: parsedData.summary || {
-            overview: `Transcribed audio from YouTube: "${videoTitle}" by ${channelName}.`,
-            keyPoints: ['Accurately transcribed spoken audio stream.'],
-            chapters: [{ title: 'Full Audio', startTime: 0, endTime: duration, summary: 'Full discussion' }],
-            actionItems: [],
-          },
-        });
-      }
-
-      // If retrieved via caption tracks (standard or fallback)
-      const rawCues = ytResult.segments || [];
-      const transcriptSegments = groupCaptionsIntoSegments(rawCues, 'spk_1');
-
-      const subtitles = transcriptSegments.map((seg, idx) => ({
-        id: `sub_${idx + 1}`,
-        index: idx + 1,
-        startTime: seg.startTime,
-        endTime: seg.endTime,
-        text: seg.text,
-      }));
-
-      const lastSegment = transcriptSegments[transcriptSegments.length - 1];
-      const estimatedDuration = lastSegment ? Math.ceil(lastSegment.endTime) : 180;
-
-      // Generate grounded summary using Gemini on the real transcript if available
-      let summaryData: any = {
-        overview: `Transcribed from YouTube: "${videoTitle}" by ${channelName}.`,
-        keyPoints: ['Accurately captured authentic spoken dialogue from video.'],
-        chapters: [{ title: 'Full Video', startTime: 0, endTime: estimatedDuration, summary: 'Spoken dialogue overview.' }],
-        actionItems: [],
-      };
-
-      if (ai && transcriptSegments.length > 0) {
-        try {
-          const sampleTranscriptText = transcriptSegments.slice(0, 50).map(s => `[${s.startTime}s] ${s.text}`).join('\n');
-          const summaryPrompt = `You are Veyra's video intelligence engine.
-Analyze the following authentic transcript for YouTube video "${videoTitle}" by "${channelName}".
-Provide an accurate overview, 3-5 key takeaways, and structured topic chapters grounded strictly in this transcript.
-
-TRANSCRIPT:
-${sampleTranscriptText}
-
-Output strictly valid JSON with this schema:
-{
-  "overview": "Overview text...",
-  "keyPoints": ["Point 1", "Point 2"],
-  "chapters": [
-    { "title": "Chapter title", "startTime": 0.0, "endTime": 30.0, "summary": "Chapter summary" }
-  ],
-  "actionItems": []
-}`;
-
-          const aiRes = await generateContentWithRetry(ai, {
-            model: 'gemini-3.1-flash-lite',
-            contents: summaryPrompt,
-            config: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-            },
-          });
-
-          const parsed = JSON.parse(aiRes.text || '{}');
-          if (parsed && parsed.overview) {
-            summaryData = parsed;
-          }
-        } catch (sumErr) {
-          console.warn('[Veyra YouTube] Grounded summary generation fallback:', sumErr);
-        }
-      }
-
-      return res.json({
-        fileName: videoTitle,
-        mediaUrl: canonicalUrl,
-        duration: estimatedDuration,
-        fileSize: 1024 * 512,
-        speakers: [{ id: 'spk_1', name: channelName }],
-        transcript: transcriptSegments,
-        subtitles,
-        summary: summaryData,
+    if (!ai) {
+      return res.status(500).json({
+        success: false,
+        code: 'GEMINI_API_KEY_MISSING',
+        message: 'GEMINI_API_KEY is missing. Please configure it in your environment settings.',
+        canUploadMedia: true,
+        error: 'GEMINI_API_KEY is missing. Please configure it in your environment settings.',
       });
+    }
+
+    // Handle YouTube Video URLs via Native Gemini API Video Input
+    if (isYouTubeUrl(url)) {
+      const result = await transcribeYouTubeWithGemini(url, ai, contextHint || projectName);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
     }
 
     // Direct Remote Media File (MP4, MP3, WAV, etc.)
