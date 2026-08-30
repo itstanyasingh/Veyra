@@ -483,7 +483,7 @@ export const HomeImportArea: React.FC<HomeImportAreaProps> = ({ onNavigate }) =>
                 Paste your video/audio link
               </h3>
               <p className="text-xs text-[#64748B] leading-relaxed">
-                Paste a supported video or audio URL to import it directly.
+                Paste a YouTube URL to transcribe supported publicly accessible videos. Direct file upload is the guaranteed fallback.
               </p>
             </div>
 

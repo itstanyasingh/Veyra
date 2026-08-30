@@ -39,12 +39,139 @@ export interface YouTubeTranscriptResult {
   videoTitle?: string;
   channelName?: string;
   language?: string;
-  sourceMethod?: 'innertube_plus' | 'innertube_lang_fallback' | 'page_json3' | 'page_xml' | 'innertube_direct' | 'audio_stream';
+  sourceMethod?: 'innertube_plus' | 'innertube_lang_fallback' | 'page_json3' | 'page_xml' | 'innertube_direct' | 'audio_stream' | 'fallback_provider';
   audioBuffer?: Buffer;
   audioMimeType?: string;
   errorCategory?: 'invalid_url' | 'not_found' | 'private_restricted' | 'bot_challenge' | 'no_captions' | 'upstream_timeout' | 'unknown';
   errorMessage?: string;
 }
+
+// ---------------------------------------------------------------------------
+// PIPELINE PROVIDER ARCHITECTURE (YouTubeTranscriptProvider Interface)
+// ---------------------------------------------------------------------------
+
+export interface CaptionProvider {
+  name: string;
+  fetchCaptions(videoId: string): Promise<{ success: boolean; segments?: CaptionSegment[]; language?: string; error?: string }>;
+}
+
+export interface AudioTranscriptionProvider {
+  name: string;
+  fetchAudioStream(videoId: string): Promise<{ success: boolean; buffer?: Buffer; mimeType?: string; error?: string }>;
+}
+
+export interface FallbackProvider {
+  name: string;
+  transcribe(videoId: string, apiKey?: string): Promise<{ success: boolean; segments?: CaptionSegment[]; videoTitle?: string; channelName?: string; error?: string }>;
+}
+
+export interface YouTubeTranscriptProviderConfig {
+  captionProvider: CaptionProvider;
+  audioProvider: AudioTranscriptionProvider;
+  fallbackProvider?: FallbackProvider;
+}
+
+export class DefaultCaptionProvider implements CaptionProvider {
+  name = 'DefaultInnertubeCaptionProvider';
+  async fetchCaptions(videoId: string) {
+    try {
+      const rawPlus = await fetchTranscript(videoId);
+      if (rawPlus && rawPlus.length > 0) {
+        const segments = rawPlus.map(item => ({
+          startTime: Math.round((Number(item.offset) || 0) * 100) / 100,
+          endTime: Math.round(((Number(item.offset) || 0) + (Number(item.duration) || 3)) * 100) / 100,
+          text: decodeHtmlEntities(item.text).replace(/\n+/g, ' ').trim(),
+        })).filter(s => s.text.length > 0);
+
+        if (segments.length > 0) {
+          return { success: true, segments, language: rawPlus[0]?.lang || 'default' };
+        }
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message };
+    }
+    return { success: false, error: 'No captions found' };
+  }
+}
+
+export class DefaultAudioProvider implements AudioTranscriptionProvider {
+  name = 'AndroidInnertubeAudioProvider';
+  async fetchAudioStream(videoId: string) {
+    try {
+      const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(4000),
+      });
+      const html = await pageRes.text();
+      const apiKeyMatch = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+      if (apiKeyMatch) {
+        const apiKey = apiKeyMatch[1];
+        const playerRes = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+          },
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: 'ANDROID',
+                clientVersion: '20.10.38',
+                androidSdkVersion: 34,
+                hl: 'en',
+                gl: 'US',
+              },
+            },
+            videoId,
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (playerRes.ok) {
+          const playerData = (await playerRes.json()) as any;
+          const adaptiveFormats = playerData.streamingData?.adaptiveFormats || [];
+          const audioFormat = adaptiveFormats.find((f: any) => f.mimeType?.startsWith('audio/') && f.url);
+          if (audioFormat && audioFormat.url) {
+            const audioFetchRes = await fetch(audioFormat.url, {
+              headers: { 'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)' },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (audioFetchRes.ok) {
+              const arrayBuf = await audioFetchRes.arrayBuffer();
+              const sliceSize = Math.min(arrayBuf.byteLength, 4 * 1024 * 1024);
+              const buffer = Buffer.from(arrayBuf.slice(0, sliceSize));
+              return { success: true, buffer, mimeType: audioFormat.mimeType.split(';')[0] || 'audio/mp4' };
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message };
+    }
+    return { success: false, error: 'Audio stream unavailable' };
+  }
+}
+
+export class EnvConfiguredFallbackProvider implements FallbackProvider {
+  name = process.env.YOUTUBE_TRANSCRIPTION_PROVIDER || 'none';
+  async transcribe(videoId: string, apiKey?: string) {
+    const providerName = process.env.YOUTUBE_TRANSCRIPTION_PROVIDER;
+    const key = apiKey || process.env.TRANSCRIPTION_API_KEY;
+    if (!providerName || providerName === 'none' || !key) {
+      return { success: false, error: 'No custom enterprise fallback provider configured' };
+    }
+    return { success: false, error: 'Enterprise provider integration pending' };
+  }
+}
+
+export class YouTubeTranscriptProviderManager implements YouTubeTranscriptProviderConfig {
+  captionProvider: CaptionProvider = new DefaultCaptionProvider();
+  audioProvider: AudioTranscriptionProvider = new DefaultAudioProvider();
+  fallbackProvider?: FallbackProvider = new EnvConfiguredFallbackProvider();
+}
+
+export const defaultTranscriptProvider = new YouTubeTranscriptProviderManager();
+
 
 // 1. URL Validation & ID Extraction
 export function validateAndExtractYouTubeId(urlStr: string): YouTubeValidationResult {
