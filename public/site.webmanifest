@@ -1,0 +1,21 @@
+{
+  "name": "VEYRA — Video Intelligence",
+  "short_name": "VEYRA",
+  "description": "Turn videos into searchable, editable, timestamped information with VEYRA.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#2563EB",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

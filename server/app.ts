@@ -102,8 +102,18 @@ function isSafePublicUrl(urlStr: string): boolean {
   }
 }
 
+export function getGeminiApiKey(): string | null {
+  const apiKey = (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.GOOGLE_API_KEY
+  )?.trim();
+  return apiKey || null;
+}
+
 export function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getGeminiApiKey();
   if (!apiKey) {
     console.warn('GEMINI_API_KEY is not set. Real AI endpoints will return helpful error guidance.');
     return null;
@@ -193,9 +203,11 @@ export async function generateContentWithRetry(
 
 // 1. Health Check
 app.get(['/api/health', '/health'], (req, res) => {
+  const hasKey = !!getGeminiApiKey();
   res.json({
     status: 'ok',
-    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+    configured: hasKey,
+    hasGeminiKey: hasKey,
     environment: process.env.NODE_ENV || 'production',
   });
 });

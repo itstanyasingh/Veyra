@@ -1,6 +1,6 @@
 {
-  "name": "VEYRA",
-  "description": "Professional video intelligence, transcription, subtitle, translation, and media workspace platform.",
+  "name": "VEYRA — Video Intelligence",
+  "description": "Turn videos into searchable, editable, timestamped information with VEYRA.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
